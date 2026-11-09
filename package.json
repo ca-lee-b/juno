@@ -1,0 +1,42 @@
+{
+  "name": "byo-pr-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.10",
+  "engines": {
+    "node": ">=24 <26"
+  },
+  "scripts": {
+    "dev:api": "tsx watch --env-file=.env src/api/main.ts",
+    "dev:worker": "tsx watch --env-file=.env src/worker/main.ts",
+    "build": "tsc -p tsconfig.build.json --noEmit && bun build src/api/main.ts src/worker/main.ts src/db/migrate.ts --target=node --external @daytona/sdk --external @hono/node-server --external bullmq --external hono --external ioredis --external octokit --external pg --external pino --external zod --root=src --outdir=dist --sourcemap=linked",
+    "start:api": "node dist/api/main.js",
+    "start:worker": "node dist/worker/main.js",
+    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "test": "vitest run",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build"
+  },
+  "dependencies": {
+    "@daytona/sdk": "0.227.0",
+    "@hono/node-server": "2.1.5",
+    "bullmq": "6.5.3",
+    "hono": "4.13.14",
+    "ioredis": "6.0.0",
+    "octokit": "5.0.5",
+    "pg": "8.23.1",
+    "pino": "10.4.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/node": "26.6.6",
+    "@types/pg": "8.23.1",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vitest": "4.1.12"
+  }
+}
