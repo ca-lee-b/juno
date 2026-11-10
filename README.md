@@ -20,9 +20,14 @@ cp .env.example .env
 Set these values in `.env`:
 
 - `API_TOKEN`: a random token with at least 32 characters.
-- `OPENAI_API_KEY`: a dedicated OpenAI project key.
+- `OPENAI_API_KEY`: a dedicated OpenAI project key, used by Codex and the writeup stage.
+- `OPENAI_CODEX_MODEL` / `OPENAI_CODEX_MODEL_EFFORT`: coding model and effort (defaults: `gpt-6-astra` / `medium`).
+- `OPENAI_WRITEUP_MODEL` / `OPENAI_WRITEUP_MODEL_EFFORT`: operator summary and GitHub PR model and effort (defaults: `gpt-6-luna` / `high`).
+
 - `DAYTONA_API_KEY`: your Daytona API key.
 - `GITHUB_TOKEN`: a fine-grained personal access token for trusted repositories.
+
+The writeup stage uses the OpenAI Responses API with the issue context, coding report, and patch. Each stage is bounded by `AGENT_TIMEOUT_MS`. Effort accepts `minimal`, `low`, `medium`, `high`, or `xhigh`; select a value supported by your chosen model. Replace the old `OPENAI_MODEL` variable with `OPENAI_CODEX_MODEL` when upgrading. Task `model` and `usage` continue to describe the coding stage only.
 
 Give the GitHub token **Contents: write**, **Pull requests: write**, and **Issues: read** permissions to create draft pull requests.
 Use the same token for the API and worker.

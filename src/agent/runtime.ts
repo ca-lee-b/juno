@@ -28,7 +28,10 @@ const artifacts = {
 };
 export async function runCodex(
   sandbox: CodexTransport,
-  config: Pick<WorkerConfig, "OPENAI_MODEL" | "OPENAI_API_KEY" | "AGENT_TIMEOUT_MS">,
+  config: Pick<
+    WorkerConfig,
+    "OPENAI_CODEX_MODEL" | "OPENAI_CODEX_MODEL_EFFORT" | "OPENAI_API_KEY" | "AGENT_TIMEOUT_MS"
+  >,
   prompt: string,
   sha: string,
   dispose: () => Promise<void>,
@@ -44,7 +47,7 @@ export async function runCodex(
   let run: Awaited<ReturnType<typeof sandbox.process.executeCommand>>;
   try {
     run = await sandbox.process.executeCommand(
-      `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_MODEL)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
+      `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
       "/tmp/repository",
       { CODEX_API_KEY: config.OPENAI_API_KEY },
       Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
