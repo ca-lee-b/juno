@@ -46,6 +46,10 @@ Start the worker in another terminal.
 bun run dev:worker
 ```
 
+The development commands use readable logs with local timestamps, colored levels in terminals,
+and indented context and error stacks. PID and hostname are hidden to reduce noise.
+Outside `NODE_ENV=development`, logs remain structured JSON. `LOG_LEVEL` still controls verbosity.
+
 ## Submit a task
 
 Replace the repository owner, repository name, issue number, and API token.
