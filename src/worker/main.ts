@@ -61,7 +61,10 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     void (async () => {
       controller.abort();
       // Active work is bounded; forced termination is recovered by BullMQ's stalled-job handling.
-      const deadline = setTimeout(() => process.exit(1), config.AGENT_TIMEOUT_MS + 180000).unref();
+      const deadline = setTimeout(
+        () => process.exit(1),
+        2 * config.AGENT_TIMEOUT_MS + 180000,
+      ).unref();
       await dispatcher;
       await worker.close();
       await queue.close();

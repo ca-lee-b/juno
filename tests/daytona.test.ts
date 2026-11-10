@@ -22,7 +22,7 @@ const config = readWorkerConfig({
   REDIS_URL: "redis://localhost",
   OPENAI_API_KEY: "secret",
   DAYTONA_API_KEY: "private",
-  OPENAI_MODEL: "test",
+  OPENAI_CODEX_MODEL: "test",
 });
 beforeEach(() => {
   vi.resetAllMocks();
@@ -46,6 +46,8 @@ it("executes once and captures artifacts without placing keys in command text", 
   const args = mocks.command.mock.calls.find(([command]) => command.includes("codex exec"));
   expect(args).toBeDefined();
   expect(args?.[0]).not.toContain("secret");
+  expect(args?.[0]).toContain("--model 'test'");
+  expect(args?.[0]).toContain(`-c 'model_reasoning_effort="medium"'`);
   expect(args?.[2]).toEqual({ CODEX_API_KEY: "secret" });
 });
 it.each([1, 124, 137])(

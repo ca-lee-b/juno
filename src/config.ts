@@ -12,9 +12,14 @@ const api = shared.extend({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
 });
 
+const effort = z.enum(["minimal", "low", "medium", "high", "xhigh"]);
+
 const worker = shared.extend({
   OPENAI_API_KEY: z.string().min(1),
-  OPENAI_MODEL: z.string().min(1),
+  OPENAI_CODEX_MODEL: z.string().trim().min(1).default("gpt-6-astra"),
+  OPENAI_CODEX_MODEL_EFFORT: effort.default("medium"),
+  OPENAI_WRITEUP_MODEL: z.string().trim().min(1).default("gpt-6-luna"),
+  OPENAI_WRITEUP_MODEL_EFFORT: effort.default("high"),
   DAYTONA_API_KEY: z.string().min(1),
   DAYTONA_API_URL: z.url().default("https://app.daytona.io/api"),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
