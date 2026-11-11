@@ -8,8 +8,8 @@
     "node": ">=24 <26"
   },
   "scripts": {
-    "dev:api": "tsx watch --env-file=.env src/api/main.ts",
-    "dev:worker": "tsx watch --env-file=.env src/worker/main.ts",
+    "dev:api": "NODE_ENV=development tsx watch --env-file=.env src/api/main.ts",
+    "dev:worker": "NODE_ENV=development tsx watch --env-file=.env src/worker/main.ts",
     "build": "tsc -p tsconfig.build.json --noEmit && bun build src/api/main.ts src/worker/main.ts src/db/migrate.ts --target=node --external @daytona/sdk --external @hono/node-server --external bullmq --external hono --external ioredis --external octokit --external pg --external pino --external zod --root=src --outdir=dist --sourcemap=linked",
     "start:api": "node dist/api/main.js",
     "start:worker": "node dist/worker/main.js",
@@ -35,6 +35,7 @@
     "@biomejs/biome": "2.6.4",
     "@types/node": "26.6.6",
     "@types/pg": "8.23.1",
+    "pino-pretty": "13.2.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
     "vitest": "4.1.12"
