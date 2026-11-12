@@ -11,7 +11,7 @@ export function createFreestyleProvider(
   const freestyle = new Freestyle({ apiKey: config.FREESTYLE_API_KEY });
   return async (taskId) => {
     const { vm, vmId } = await freestyle.vms.create({
-      snapshotId: "freestyle/ubuntu",
+      snapshotId: "freestyle/ubuntu-sm",
       ttlSeconds: 1800,
       autoDeleteSeconds: 0,
       metadata: { project: "byo-pr-agent", taskId },

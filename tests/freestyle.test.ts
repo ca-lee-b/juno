@@ -29,7 +29,7 @@ beforeEach(() => {
 it("creates a bounded VM with outbound-only public access", async () => {
   expect((await create("task-1")).id).toBe("vm-1");
   expect(mocks.create).toHaveBeenCalledWith({
-    snapshotId: "freestyle/ubuntu",
+    snapshotId: "freestyle/ubuntu-sm",
     ttlSeconds: 1800,
     autoDeleteSeconds: 0,
     metadata: { project: "byo-pr-agent", taskId: "task-1" },

@@ -34,7 +34,7 @@ and the shared Codex runtime. GitHub credentials remain in the backend. Provider
 adapters do not own prompts, patch collection, or execution error classification.
 
 The worker composes this wrapper with `createSandboxProvider(config)`.
-`SANDBOX_PROVIDER` selects Daytona (default) or Freestyle; only the selected provider requires its API key. Freestyle uses the Ubuntu snapshot, native-agent exec, outbound public networking, and a 1,800-second deletion TTL. Expired VMs are deleted asynchronously by Freestyle.
+`SANDBOX_PROVIDER` selects Daytona (default) or Freestyle; only the selected provider requires its API key. Freestyle uses the small Ubuntu snapshot (2 vCPU, 4 GiB RAM, 16 GB disk), native-agent exec, outbound public networking, and a 1,800-second deletion TTL. Expired VMs are deleted asynchronously by Freestyle.
 To add Boat or another provider, implement `SandboxProvider` and wire its factory
 and credential validation in the worker/config. No task or agent changes are needed.
 Provider selection is per worker; there is no per-task selector or automatic failover.

@@ -30,7 +30,7 @@ Set these values in `.env`:
 
 The writeup stage uses the OpenAI Responses API with the issue context, coding report, and patch. Each stage is bounded by `AGENT_TIMEOUT_MS`. Effort accepts `minimal`, `low`, `medium`, `high`, or `xhigh`; select a value supported by your chosen model. Replace the old `OPENAI_MODEL` variable with `OPENAI_CODEX_MODEL` when upgrading. Task `model` and `usage` continue to describe the coding stage only.
 
-Freestyle uses its `freestyle/ubuntu` snapshot with outbound Internet access and a thirty-minute deletion deadline. The pinned SDK uses native-agent command execution for runs longer than five minutes; custom or older snapshots are not supported. See [Freestyle setup](https://www.freestyle.sh/docs/quickstart).
+Freestyle uses its `freestyle/ubuntu-sm` (2 vCPU, 4 GiB RAM, 16 GB disk) snapshot with outbound Internet access and a thirty-minute deletion deadline. The pinned SDK uses native-agent command execution for runs longer than five minutes; custom or older snapshots are not supported. See [Freestyle setup](https://www.freestyle.sh/docs/quickstart).
 
 Give the GitHub token **Contents: write**, **Pull requests: write**, and **Issues: read** permissions to create draft pull requests.
 Use the same token for the API and worker.
