@@ -7,7 +7,8 @@ import { createIssueReader } from "@/github/issues";
 import { createLogger } from "@/logger";
 import { createRedis, JOB_ATTEMPTS, QUEUE_NAME } from "@/queue/connection";
 import { runDispatcher } from "@/queue/dispatcher";
-import { createSandboxProvider } from "@/sandbox/daytona";
+import { createDaytonaProvider } from "@/sandbox/daytona";
+import { createRepositorySandboxProvider } from "@/sandbox/repository";
 import { createExecutionHandler } from "@/tasks/execute";
 import { TaskRepository } from "@/tasks/repository";
 
@@ -26,7 +27,7 @@ const execute = createExecutionHandler({
   tasks,
   logger,
   readIssue: createIssueReader(config.GITHUB_TOKEN),
-  createSandbox: createSandboxProvider(config),
+  createSandbox: createRepositorySandboxProvider(config, createDaytonaProvider(config)),
   execute: createExecutor(config),
 });
 const worker = new Worker(

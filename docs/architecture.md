@@ -20,6 +20,25 @@ A retry returns the task to `queued`. A final failure sets it to `failed`.
 The `completed` status confirms that results were saved.
 It does not confirm that tests passed. Read the summary for command results.
 
+## Sandbox providers
+
+`src/sandbox/contracts.ts` defines `SandboxProvider`: a task ID produces an isolated
+`Sandbox` with command execution, file transfer, public Git cloning, and disposal.
+Command timeouts use seconds; nonzero exits are returned, while transport failures
+reject. Disposal must stop running commands, be safe after success, and allow retries
+after failure. Providers must enforce a bounded lifetime if backend cleanup fails.
+The shared runtime requires Linux with sh, git, Node/npm, and GNU timeout.
+
+`src/sandbox/repository.ts` wraps any provider with private repository bundle loading
+and the shared Codex runtime. GitHub credentials remain in the backend. Provider
+adapters do not own prompts, patch collection, or execution error classification.
+
+The worker explicitly composes this wrapper with `createDaytonaProvider(config)`.
+Daytona remains the only shipped provider, with unchanged credentials and lifetime.
+To add Boat or another provider, implement `SandboxProvider` and wire its factory
+and credential validation in the worker/config. No task or agent changes are needed.
+Provider selection is per worker; there is no per-task selector or automatic failover.
+
 ## Failure and cleanup
 
 Cleanup runs after success and failure.
@@ -76,7 +95,7 @@ See the [setup instructions](../README.md#setup) for GitHub token permissions.
 - `src/tasks`: task state and publication control.
 - `src/execution`: shared execution contracts, results, failures, and limits.
 - `src/agent`: Codex prompt/output contract, runtime commands, and artifact collection.
-- `src/sandbox`: Daytona lifecycle, repository loading, and patch-generation script.
+- `src/sandbox`: provider contract, Daytona adapter, shared repository loading, and patch-generation script.
 - `src/github`: shared client policy, repository access, issues, and publication.
 - `src/db` and `migrations`: database access and schema changes.
 
