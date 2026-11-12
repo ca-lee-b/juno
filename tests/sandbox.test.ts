@@ -63,9 +63,10 @@ it("runs repository setup, Codex, artifact collection and cleanup with an indepe
 
 it("uses the injected provider to destroy an environment after a transport failure", async () => {
   const { environment, create } = setup();
-  environment.executeCommand
-    .mockResolvedValueOnce({ exitCode: 0, result: "" })
-    .mockRejectedValueOnce(new Error("transport"));
+  environment.executeCommand.mockImplementation(async (command) => {
+    if (command.includes("codex exec")) throw new Error("transport");
+    return { exitCode: 0, result: "" };
+  });
   const sandbox = await create("task-id");
   await expect(sandbox.execute("fix issue", issue.sha)).rejects.toThrow("EXECUTION_TIMEOUT");
   expect(environment.dispose).toHaveBeenCalledOnce();

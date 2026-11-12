@@ -122,6 +122,11 @@ They have network access and can read the OpenAI key.
 GitHub, database, Redis, and Daytona credentials stay in the backend.
 
 Codex CLI is pinned to version 0.166.0.
+Every sandbox installs `codebase-design` (mattpocock/skills) and `code-simplifier`
+(getsentry/skills) before starting Codex, with no opt-in configuration. The skills CLI
+and both source revisions are pinned in `src/agent/runtime.ts`. Skills are installed
+globally inside the sandbox, outside the repository and generated patch. If either
+installation fails, the task fails setup instead of running without its built-in skills.
 The default execution limit is ten minutes (`AGENT_TIMEOUT_MS=600000`).
 The sandbox lifetime is thirty minutes. Existing `.env` values override the default execution limit.
 

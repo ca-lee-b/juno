@@ -72,6 +72,35 @@ it.each([1, 124, 137])(
     expect(mocks.delete).toHaveBeenCalledTimes(exitCode === 1 ? 0 : 1);
   },
 );
+it("installs only the two built-in skills before starting Codex", async () => {
+  const sandbox = await createSandboxProvider(config)("task");
+  await sandbox.execute("issue", "a".repeat(40));
+  const commands = mocks.command.mock.calls;
+  expect(commands[0]?.[0]).toContain("npm install");
+  expect(commands[1]?.[0]).toContain("--skill 'codebase-design'");
+  expect(commands[2]?.[0]).toContain("--skill 'code-simplifier'");
+  for (const call of commands.slice(1, 3)) {
+    expect(call[0]).toContain("npx --yes skills@1.8.1 add");
+    expect(call[0]).toMatch(/\/tree\/[a-f0-9]{40}'/);
+    expect(call[0]).toContain("--agent codex --global --yes");
+    expect(call[1]).toBe("/tmp");
+    expect(call[2]).toEqual({ DISABLE_TELEMETRY: "1" });
+  }
+  expect(commands[3]?.[0]).toContain("codex exec");
+});
+it.each([1, 2])("does not start Codex when built-in skill %s fails", async (index) => {
+  for (let i = 0; i < index; i++) {
+    mocks.command.mockResolvedValueOnce({ exitCode: 0, result: "" });
+  }
+  mocks.command.mockResolvedValueOnce({ exitCode: 1, result: "skill install failed" });
+  const sandbox = await createSandboxProvider(config)("task");
+  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
+    code: "SETUP_FAILED",
+    exitCode: 1,
+  });
+  expect(mocks.command).toHaveBeenCalledTimes(index + 1);
+  expect(mocks.upload).not.toHaveBeenCalled();
+});
 it("destroys the sandbox before surfacing a transport timeout", async () => {
   mocks.command.mockImplementation(async (command: string) => {
     if (command.includes("codex exec")) throw new Error("secret headers");
