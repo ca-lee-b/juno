@@ -1,21 +1,8 @@
 import type { WorkerConfig } from "@/config";
 import { ExecutionError, MAX_PATCH_BYTES, type SandboxOutput } from "@/execution/contracts";
+import type { Sandbox } from "@/sandbox/contracts";
 import { patchCommand } from "@/sandbox/patch";
 
-interface CodexTransport {
-  process: {
-    executeCommand(
-      command: string,
-      cwd: string,
-      env: Record<string, string> | undefined,
-      timeout: number,
-    ): Promise<{ exitCode?: number; result: string }>;
-  };
-  fs: {
-    uploadFile(data: Buffer, path: string): Promise<unknown>;
-    downloadFile(path: string): Promise<Buffer | undefined>;
-  };
-}
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 const OUTPUT_DIRECTORY = "/tmp/agent-output";
 const artifacts = {
@@ -27,7 +14,7 @@ const artifacts = {
   script: `${OUTPUT_DIRECTORY}/patch.sh`,
 };
 export async function runCodex(
-  sandbox: CodexTransport,
+  sandbox: Pick<Sandbox, "executeCommand" | "uploadFile" | "downloadFile">,
   config: Pick<
     WorkerConfig,
     "OPENAI_CODEX_MODEL" | "OPENAI_CODEX_MODEL_EFFORT" | "OPENAI_API_KEY" | "AGENT_TIMEOUT_MS"
@@ -36,7 +23,7 @@ export async function runCodex(
   sha: string,
   dispose: () => Promise<void>,
 ): Promise<SandboxOutput> {
-  const setup = await sandbox.process.executeCommand(
+  const setup = await sandbox.executeCommand(
     `mkdir -p ${OUTPUT_DIRECTORY} && npm install --prefix /tmp/codex-runtime @openai/codex@0.166.0`,
     "/tmp",
     undefined,
@@ -54,7 +41,7 @@ export async function runCodex(
       "code-simplifier",
     ],
   ] as const) {
-    const installed = await sandbox.process.executeCommand(
+    const installed = await sandbox.executeCommand(
       `npx --yes skills@1.8.1 add ${quote(source)} --skill ${quote(skill)} --agent codex --global --yes`,
       "/tmp",
       { DISABLE_TELEMETRY: "1" },
@@ -62,10 +49,10 @@ export async function runCodex(
     );
     if (installed.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", installed.exitCode);
   }
-  await sandbox.fs.uploadFile(Buffer.from(prompt), artifacts.prompt);
-  let run: Awaited<ReturnType<typeof sandbox.process.executeCommand>>;
+  await sandbox.uploadFile(Buffer.from(prompt), artifacts.prompt);
+  let run: Awaited<ReturnType<typeof sandbox.executeCommand>>;
   try {
-    run = await sandbox.process.executeCommand(
+    run = await sandbox.executeCommand(
       `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
       "/tmp/repository",
       { CODEX_API_KEY: config.OPENAI_API_KEY },
@@ -84,8 +71,8 @@ export async function runCodex(
     throw new ExecutionError("EXECUTION_FAILED", run.exitCode);
   }
   try {
-    await sandbox.fs.uploadFile(Buffer.from(patchCommand(sha, artifacts.patch)), artifacts.script);
-    const collected = await sandbox.process.executeCommand(
+    await sandbox.uploadFile(Buffer.from(patchCommand(sha, artifacts.patch)), artifacts.script);
+    const collected = await sandbox.executeCommand(
       `sh ${artifacts.script} && wc -c < ${artifacts.patch}`,
       "/tmp/repository",
       undefined,
@@ -97,7 +84,7 @@ export async function runCodex(
     if (size > MAX_PATCH_BYTES) throw new ExecutionError("PATCH_TOO_LARGE");
     const [summary, patch, events] = await Promise.all(
       [artifacts.summary, artifacts.patch, artifacts.events].map((file) =>
-        sandbox.fs.downloadFile(file),
+        sandbox.downloadFile(file),
       ),
     );
     if (!summary || !patch || !events) throw new ExecutionError("OUTPUT_FAILED");

@@ -1,6 +1,13 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { readWorkerConfig } from "@/config";
-import { createSandboxProvider } from "@/sandbox/daytona";
+import { createDaytonaProvider } from "@/sandbox/daytona";
+
+import { createRepositorySandboxProvider } from "@/sandbox/repository";
+
+const createSandboxProvider = (
+  config: Parameters<typeof createRepositorySandboxProvider>[0] &
+    Parameters<typeof createDaytonaProvider>[0],
+) => createRepositorySandboxProvider(config, createDaytonaProvider(config));
 
 const mocks = vi.hoisted(() => ({
   bundle: vi.fn(),
@@ -187,4 +194,32 @@ it("allows cleanup to be retried after a failed deletion", async () => {
   await sandbox.dispose();
   await sandbox.dispose();
   expect(mocks.delete).toHaveBeenCalledTimes(2);
+});
+
+it("preserves Daytona isolation, lifetime, and exact-commit public cloning", async () => {
+  const clone = vi.fn().mockResolvedValue(undefined);
+  mocks.create.mockResolvedValueOnce({ id: "daytona-id", git: { clone } });
+  const sandbox = await createDaytonaProvider(config)("task-id");
+  expect(mocks.create).toHaveBeenCalledWith(
+    {
+      language: "typescript",
+      public: false,
+      ephemeral: true,
+      autoStopInterval: 30,
+      ttlMinutes: 30,
+      labels: { project: "byo-pr-agent", taskId: "task-id" },
+    },
+    { timeout: 60 },
+  );
+  await sandbox.clone("https://github.com/owner/repo.git", "/tmp/repository", "a".repeat(40));
+  expect(clone).toHaveBeenCalledWith(
+    "https://github.com/owner/repo.git",
+    "/tmp/repository",
+    undefined,
+    "a".repeat(40),
+    undefined,
+    undefined,
+    false,
+    1,
+  );
 });
