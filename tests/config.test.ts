@@ -28,3 +28,18 @@ it.each(["OPENAI_CODEX_MODEL_EFFORT", "OPENAI_WRITEUP_MODEL_EFFORT"])(
     expect(() => readWorkerConfig({ ...env, [key]: "invalid" })).toThrow();
   },
 );
+
+it("defaults to Daytona and requires only the selected provider key", () => {
+  expect(readWorkerConfig(env).SANDBOX_PROVIDER).toBe("daytona");
+  expect(
+    readWorkerConfig({
+      ...env,
+      DAYTONA_API_KEY: "",
+      SANDBOX_PROVIDER: "freestyle",
+      FREESTYLE_API_KEY: "key",
+    }).SANDBOX_PROVIDER,
+  ).toBe("freestyle");
+  expect(() => readWorkerConfig({ ...env, DAYTONA_API_KEY: "" })).toThrow();
+  expect(() => readWorkerConfig({ ...env, SANDBOX_PROVIDER: "freestyle" })).toThrow();
+  expect(() => readWorkerConfig({ ...env, SANDBOX_PROVIDER: "other" })).toThrow();
+});

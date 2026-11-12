@@ -9,7 +9,7 @@ It does not include a web interface, GitHub App, or webhook endpoint.
 1. The API checks the API token. It stores the task and an outbox record in Postgres.
 2. The dispatcher sends the task ID to BullMQ through Redis.
 3. The worker reads the GitHub issue. It records the source commit and branch.
-4. The worker creates a Daytona sandbox and loads the repository. Private repositories use a Git bundle prepared by the backend.
+4. The worker creates the selected sandbox and loads the repository. Private repositories use a Git bundle prepared by the backend.
 5. Codex edits files and runs commands in the sandbox.
 6. The worker collects a binary Git patch against the source commit. It saves the patch, summary, model, prompt version, and available usage in one database operation.
 7. The worker deletes the sandbox.
@@ -33,8 +33,8 @@ The shared runtime requires Linux with sh, git, Node/npm, and GNU timeout.
 and the shared Codex runtime. GitHub credentials remain in the backend. Provider
 adapters do not own prompts, patch collection, or execution error classification.
 
-The worker explicitly composes this wrapper with `createDaytonaProvider(config)`.
-Daytona remains the only shipped provider, with unchanged credentials and lifetime.
+The worker composes this wrapper with `createSandboxProvider(config)`.
+`SANDBOX_PROVIDER` selects Daytona (default) or Freestyle; only the selected provider requires its API key. Freestyle uses the Ubuntu snapshot, native-agent exec, outbound public networking, and a 1,800-second deletion TTL. Expired VMs are deleted asynchronously by Freestyle.
 To add Boat or another provider, implement `SandboxProvider` and wire its factory
 and credential validation in the worker/config. No task or agent changes are needed.
 Provider selection is per worker; there is no per-task selector or automatic failover.
@@ -84,7 +84,7 @@ The service does not enforce a review approval step.
 Only the dedicated OpenAI key enters the sandbox.
 Repository code can read this key and access the network.
 Use trusted repositories only.
-GitHub, Postgres, Redis, and Daytona credentials stay in the backend.
+GitHub, Postgres, Redis, and sandbox provider credentials stay in the backend.
 See the [setup instructions](../README.md#setup) for GitHub token permissions.
 
 ## Code structure
@@ -95,7 +95,7 @@ See the [setup instructions](../README.md#setup) for GitHub token permissions.
 - `src/tasks`: task state and publication control.
 - `src/execution`: shared execution contracts, results, failures, and limits.
 - `src/agent`: Codex prompt/output contract, runtime commands, and artifact collection.
-- `src/sandbox`: provider contract, Daytona adapter, shared repository loading, and patch-generation script.
+- `src/sandbox`: provider contract, Daytona and Freestyle adapters, shared repository loading, and patch-generation script.
 - `src/github`: shared client policy, repository access, issues, and publication.
 - `src/db` and `migrations`: database access and schema changes.
 
@@ -104,7 +104,7 @@ See the [setup instructions](../README.md#setup) for GitHub token permissions.
 Run `bun run check` for lint, type checks, offline tests, and the build.
 Set `TEST_DATABASE_URL` to include Postgres integration tests.
 These tests use isolated database schemas.
-Live execution tests require paid OpenAI and Daytona access.
+Live execution tests require paid OpenAI and selected sandbox provider access.
 
 Local TypeScript imports omit file extensions. TypeScript uses bundler resolution,
 and the build uses Bun to bundle each entry point for Node.js while keeping package
