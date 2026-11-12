@@ -10,7 +10,7 @@
   "scripts": {
     "dev:api": "NODE_ENV=development tsx watch --env-file=.env src/api/main.ts",
     "dev:worker": "NODE_ENV=development tsx watch --env-file=.env src/worker/main.ts",
-    "build": "tsc -p tsconfig.build.json --noEmit && bun build src/api/main.ts src/worker/main.ts src/db/migrate.ts --target=node --external @daytona/sdk --external @hono/node-server --external bullmq --external hono --external ioredis --external octokit --external pg --external pino --external zod --root=src --outdir=dist --sourcemap=linked",
+    "build": "tsc -p tsconfig.build.json --noEmit && bun build src/api/main.ts src/worker/main.ts src/db/migrate.ts --target=node --external @daytona/sdk --external freestyle --external @hono/node-server --external bullmq --external hono --external ioredis --external octokit --external pg --external pino --external zod --root=src --outdir=dist --sourcemap=linked",
     "start:api": "node dist/api/main.js",
     "start:worker": "node dist/worker/main.js",
     "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
@@ -24,6 +24,7 @@
     "@daytona/sdk": "0.227.0",
     "@hono/node-server": "2.1.5",
     "bullmq": "6.5.3",
+    "freestyle": "0.2.23",
     "hono": "4.13.14",
     "ioredis": "6.0.0",
     "octokit": "5.0.5",
