@@ -20,8 +20,9 @@ const worker = shared.extend({
   OPENAI_CODEX_MODEL_EFFORT: effort.default("medium"),
   OPENAI_WRITEUP_MODEL: z.string().trim().min(1).default("gpt-6-luna"),
   OPENAI_WRITEUP_MODEL_EFFORT: effort.default("high"),
-  SANDBOX_PROVIDER: z.enum(["daytona", "freestyle"]).default("daytona"),
+  SANDBOX_PROVIDER: z.enum(["daytona", "freestyle", "e2b"]).default("daytona"),
   DAYTONA_API_KEY: z.string().default(""),
+  E2B_API_KEY: z.string().default(""),
   FREESTYLE_API_KEY: z.string().default(""),
   DAYTONA_API_URL: z.url().default("https://app.daytona.io/api"),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
@@ -29,11 +30,16 @@ const worker = shared.extend({
 });
 
 const validatedWorker = worker.superRefine((config, ctx) => {
-  const key = config.SANDBOX_PROVIDER === "freestyle" ? "FREESTYLE_API_KEY" : "DAYTONA_API_KEY";
-  if (!config[key]?.trim())
+  const key = {
+    daytona: "DAYTONA_API_KEY",
+    freestyle: "FREESTYLE_API_KEY",
+    e2b: "E2B_API_KEY",
+  } as const;
+  const selectedKey = key[config.SANDBOX_PROVIDER];
+  if (!config[selectedKey]?.trim())
     ctx.addIssue({
       code: "custom",
-      path: [key],
+      path: [selectedKey],
       message: "Required for selected sandbox provider",
     });
 });
