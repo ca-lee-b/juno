@@ -43,3 +43,11 @@ it("defaults to Daytona and requires only the selected provider key", () => {
   expect(() => readWorkerConfig({ ...env, SANDBOX_PROVIDER: "freestyle" })).toThrow();
   expect(() => readWorkerConfig({ ...env, SANDBOX_PROVIDER: "other" })).toThrow();
 });
+
+it("requires a nonblank E2B key only when E2B is selected", () => {
+  const e2bEnv = { ...env, DAYTONA_API_KEY: "", SANDBOX_PROVIDER: "e2b" };
+  expect(readWorkerConfig({ ...e2bEnv, E2B_API_KEY: "key" }).SANDBOX_PROVIDER).toBe("e2b");
+  for (const key of [undefined, "", "   "]) {
+    expect(() => readWorkerConfig({ ...e2bEnv, E2B_API_KEY: key })).toThrow();
+  }
+});

@@ -34,7 +34,9 @@ and the shared Codex runtime. GitHub credentials remain in the backend. Provider
 adapters do not own prompts, patch collection, or execution error classification.
 
 The worker composes this wrapper with `createSandboxProvider(config)`.
-`SANDBOX_PROVIDER` selects Daytona (default) or Freestyle; only the selected provider requires its API key. Freestyle uses the small Ubuntu snapshot (2 vCPU, 4 GiB RAM, 16 GB disk), native-agent exec, outbound public networking, and a 1,800-second deletion TTL. Expired VMs are deleted asynchronously by Freestyle.
+`SANDBOX_PROVIDER` selects Daytona (default), Freestyle, or E2B; only the selected provider requires its API key. Freestyle uses the small Ubuntu snapshot (2 vCPU, 4 GiB RAM, 16 GB disk), native-agent exec, outbound public networking, and a 1,800-second deletion TTL. Expired VMs are deleted asynchronously by Freestyle.
+E2B uses the default `base` template, installs Node 24.22.3 for the required skills CLI, and runs with outbound Internet access, authenticated sandbox URLs, and a thirty-minute timeout. Set `SANDBOX_PROVIDER=e2b` and `E2B_API_KEY` to enable it. See [E2B setup](https://docs.e2b.dev/quickstart).
+
 To add Boat or another provider, implement `SandboxProvider` and wire its factory
 and credential validation in the worker/config. No task or agent changes are needed.
 Provider selection is per worker; there is no per-task selector or automatic failover.
@@ -95,7 +97,7 @@ See the [setup instructions](../README.md#setup) for GitHub token permissions.
 - `src/tasks`: task state and publication control.
 - `src/execution`: shared execution contracts, results, failures, and limits.
 - `src/agent`: Codex prompt/output contract, runtime commands, and artifact collection.
-- `src/sandbox`: provider contract, Daytona and Freestyle adapters, shared repository loading, and patch-generation script.
+- `src/sandbox`: provider contract, Daytona, Freestyle, and E2B adapters, shared repository loading, and patch-generation script.
 - `src/github`: shared client policy, repository access, issues, and publication.
 - `src/db` and `migrations`: database access and schema changes.
 
