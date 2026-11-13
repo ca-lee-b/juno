@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+
+git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r bunx biome check --write --
+git diff --cached --name-only --diff-filter=ACMR -z | git add --pathspec-from-file=- --pathspec-file-nul
