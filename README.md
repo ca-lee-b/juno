@@ -2,9 +2,9 @@
   <img src="docs/juno_logo_wordmark.svg" alt="Juno" width="70%" />
 </p>
 
-# BYO PR Agent
+# Juno
 
-BYO PR Agent is a backend service that turns GitHub issues into draft pull requests.
+Juno is a backend service that turns GitHub issues into draft pull requests.
 It uses OpenAI and a [supported sandbox provider](docs/supported-providers.md) to make code changes.
 Review the changes before you create a draft pull request.
 
