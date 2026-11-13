@@ -1,3 +1,5 @@
+<img src="docs/juno_logo_wordmark.svg" alt="Juno" width="100%" />
+
 # BYO PR Agent
 
 BYO PR Agent is a backend service that turns GitHub issues into draft pull requests.
