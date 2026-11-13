@@ -1,4 +1,6 @@
-<img src="docs/juno_logo_wordmark.svg" alt="Juno" width="100%" />
+<p align="center">
+  <img src="docs/juno_logo_wordmark.svg" alt="Juno" width="70%" />
+</p>
 
 # BYO PR Agent
 
