@@ -18,7 +18,8 @@
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "vitest run",
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build"
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
+    "prepare": "husky"
   },
   "dependencies": {
     "@daytona/sdk": "0.227.0",
@@ -37,6 +38,7 @@
     "@biomejs/biome": "2.6.4",
     "@types/node": "26.6.6",
     "@types/pg": "8.23.1",
+    "husky": "^9.1.7",
     "pino-pretty": "13.2.0",
     "tsx": "4.23.15",
     "typescript": "7.0.2",
