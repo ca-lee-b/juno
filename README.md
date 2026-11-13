@@ -1,7 +1,7 @@
 # BYO PR Agent
 
 BYO PR Agent is a backend service that turns GitHub issues into draft pull requests.
-It uses OpenAI and Daytona, Freestyle, or E2B to make code changes.
+It uses OpenAI and a [supported sandbox provider](docs/supported-providers.md) to make code changes.
 Review the changes before you create a draft pull request.
 
 This project is an example for learning. Use it only with trusted repositories.
@@ -24,15 +24,10 @@ Set these values in `.env`:
 - `OPENAI_CODEX_MODEL` / `OPENAI_CODEX_MODEL_EFFORT`: coding model and effort (defaults: `gpt-6-astra` / `medium`).
 - `OPENAI_WRITEUP_MODEL` / `OPENAI_WRITEUP_MODEL_EFFORT`: operator summary and GitHub PR model and effort (defaults: `gpt-6-luna` / `high`).
 
-- `SANDBOX_PROVIDER`: `daytona` (default), `freestyle`, or `e2b`.
-- `DAYTONA_API_KEY`, `FREESTYLE_API_KEY`, or `E2B_API_KEY`: the selected provider’s API key.
+- `SANDBOX_PROVIDER` and the selected provider’s API key: see [supported sandbox providers](docs/supported-providers.md) for values, default resources, and setup notes.
 - `GITHUB_TOKEN`: a fine-grained personal access token for trusted repositories.
 
 The writeup stage uses the OpenAI Responses API with the issue context, coding report, and patch. Each stage is bounded by `AGENT_TIMEOUT_MS`. Effort accepts `minimal`, `low`, `medium`, `high`, or `xhigh`; select a value supported by your chosen model. Replace the old `OPENAI_MODEL` variable with `OPENAI_CODEX_MODEL` when upgrading. Task `model` and `usage` continue to describe the coding stage only.
-
-Freestyle uses its `freestyle/ubuntu-sm` (2 vCPU, 4 GiB RAM, 16 GB disk) snapshot with outbound Internet access and a thirty-minute deletion deadline. The pinned SDK uses native-agent command execution for runs longer than five minutes; custom or older snapshots are not supported. See [Freestyle setup](https://www.freestyle.sh/docs/quickstart).
-
-E2B uses the default `base` template, installs Node 24.22.3 for the required skills CLI, and runs with outbound Internet access, authenticated sandbox URLs, and a thirty-minute timeout. Set `SANDBOX_PROVIDER=e2b` and `E2B_API_KEY` to enable it. See [E2B setup](https://docs.e2b.dev/quickstart).
 
 Give the GitHub token **Contents: write**, **Pull requests: write**, and **Issues: read** permissions to create draft pull requests.
 Use the same token for the API and worker.
@@ -58,7 +53,7 @@ Outside `NODE_ENV=development`, logs remain structured JSON. `LOG_LEVEL` still c
 ## Submit a task
 
 Replace the repository owner, repository name, issue number, and API token.
-Each task uses paid OpenAI and Daytona, Freestyle, or E2B services.
+Each task uses paid OpenAI and sandbox provider services.
 
 ```sh
 curl http://localhost:3000/v1/tasks \
