@@ -11,7 +11,7 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "concurrently --kill-others --names api,worker,web \"bun run dev:api\" \"bun run dev:worker\" \"bun run dev:web\"",
+    "dev": "concurrently --names api,worker,web \"bun run dev:api\" \"bun run dev:worker\" \"bun run dev:web\"",
     "dev:api": "bun run --cwd apps/backend dev:api",
     "dev:worker": "bun run --cwd apps/backend dev:worker",
     "start:api": "bun run --cwd apps/backend start:api",

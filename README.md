@@ -48,7 +48,8 @@ bun run dev
 Open http://localhost:3001 and use **Connection** to enter your backend `API_TOKEN`.
 The API runs on http://localhost:3000. Set `AGENT_API_URL` in `apps/web/.env.local` to override it.
 
-`bun run dev` starts the API, worker, and web app together and stops them together.
+`bun run dev` starts the API, worker, and web app together. If one process exits,
+the others keep running.
 Postgres and Redis are managed separately by Docker Compose. To run app processes
 individually, use `bun run dev:api`, `bun run dev:worker`, and `bun run dev:web`.
 
