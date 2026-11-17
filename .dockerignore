@@ -1,6 +1,9 @@
-node_modules
-dist
+**/node_modules
+**/dist
+**/.next
 .git
-.env
-.env.*
-coverage
+.agents
+**/.env
+**/.env.*
+**/coverage
+**/*.tsbuildinfo

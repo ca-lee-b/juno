@@ -4,12 +4,12 @@
 
 # Juno
 
-Juno is a backend service that turns GitHub issues into draft pull requests.
+Juno is a web app and backend service that turns GitHub issues into draft pull requests.
 It uses OpenAI and a [supported sandbox provider](docs/supported-providers.md) to make code changes.
 Review the changes before you create a draft pull request.
 
 This project is an example for learning. Use it only with trusted repositories.
-It uses a GitHub personal access token. It does not include a web interface.
+It uses a GitHub personal access token. The Next.js web app connects to the API through authenticated server routes.
 
 ## Setup
 
@@ -18,10 +18,11 @@ Bun manages dependencies and scripts. Node.js runs the application.
 
 ```sh
 bun install --frozen-lockfile
-cp .env.example .env
+cp apps/backend/.env.example apps/backend/.env
+cp apps/web/.env.example apps/web/.env.local
 ```
 
-Set these values in `.env`:
+Set these values in `apps/backend/.env`:
 
 - `API_TOKEN`: a random token with at least 32 characters.
 - `OPENAI_API_KEY`: a dedicated OpenAI project key, used by Codex and the writeup stage.
@@ -36,23 +37,51 @@ The writeup stage uses the OpenAI Responses API with the issue context, coding r
 Give the GitHub token **Contents: write**, **Pull requests: write**, and **Issues: read** permissions to create draft pull requests.
 Use the same token for the API and worker.
 
-Start the database and Redis. Apply the database migrations. Then start the API.
+Start the database and Redis. Apply the database migrations. Then start the applications.
 
 ```sh
 docker compose up -d --wait
 bun run db:migrate
-bun run dev:api
+bun run dev
 ```
 
-Start the worker in another terminal.
+Open http://localhost:3001 and use **Connection** to enter your backend `API_TOKEN`.
+The API runs on http://localhost:3000. Set `AGENT_API_URL` in `apps/web/.env.local` to override it.
 
-```sh
-bun run dev:worker
-```
+`bun run dev` starts the API, worker, and web app together and stops them together.
+Postgres and Redis are managed separately by Docker Compose. To run app processes
+individually, use `bun run dev:api`, `bun run dev:worker`, and `bun run dev:web`.
 
 The development commands use readable logs with local timestamps, colored levels in terminals,
 and indented context and error stacks. PID and hostname are hidden to reduce noise.
 Outside `NODE_ENV=development`, logs remain structured JSON. `LOG_LEVEL` still controls verbosity.
+
+## Workspace structure
+
+- `apps/backend`: API, worker, database migrations, and backend tests.
+- `apps/web`: Next.js interface, authenticated proxy routes, assets, and web tests.
+- `docs`: shared architecture and API documentation.
+- Root `package.json` and `bun.lock`: Bun workspaces and a single dependency install.
+
+Run commands from the repository root. `build`, `lint`, `typecheck`, `test`, and
+`check` cover both apps. `check` also builds the web app before its API smoke test.
+`test` runs backend tests and web unit tests; the production web smoke test runs
+through `check` or `bun run --cwd apps/web test:smoke` after a web build.
+`format` formats the backend with Biome; the web app retains its ESLint setup.
+App-specific TypeScript versions and configurations remain independent. The root
+TypeScript 5 dependency supports hoisted ESLint plugins; the backend explicitly
+uses its own TypeScript 7 dependency.
+
+Build the backend container from the repository root:
+
+```sh
+docker build -f apps/backend/Dockerfile -t byo-pr-agent .
+```
+
+The image defaults to the API; use `node dist/worker/main.js` for the worker or
+`node dist/db/migrate.js` for migrations. Supply the backend environment at runtime.
+The web app builds separately with `bun run --cwd apps/web build` and starts with
+`bun run start:web`. See [web setup](apps/web/README.md) for deployment requirements.
 
 ## Submit a task
 
@@ -128,7 +157,7 @@ GitHub, database, Redis, and sandbox provider credentials stay in the backend.
 Codex CLI is pinned to version 0.166.0.
 Every sandbox installs `codebase-design` (mattpocock/skills) and `code-simplifier`
 (getsentry/skills) before starting Codex, with no opt-in configuration. The skills CLI
-and both source revisions are pinned in `src/agent/runtime.ts`. Skills are installed
+and both source revisions are pinned in `apps/backend/src/agent/runtime.ts`. Skills are installed
 globally inside the sandbox, outside the repository and generated patch. If either
 installation fails, the task fails setup instead of running without its built-in skills.
 The default execution limit is ten minutes (`AGENT_TIMEOUT_MS=600000`).

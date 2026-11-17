@@ -1,0 +1,281 @@
+{
+  "version": 2,
+  "skills": {
+    "alignment": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/alignment/SKILL.md",
+      "computedHash": "ac9f45cc781c3d00a8365a5ef8a8887db5fec4a773e38765b49ef7810a8fa2c3"
+    },
+    "animate": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/animate/SKILL.md",
+      "computedHash": "7e070477f425521fc9cabab1d91b0fa123b2fdf432a0011d799076f779787afe"
+    },
+    "animate-expo": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/animate-expo/SKILL.md",
+      "computedHash": "586a3cdf558b5bf48009033ec9de499f81e603ee2d8f832423d3627de719b0b3"
+    },
+    "animation-performance": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/animation-performance/SKILL.md",
+      "computedHash": "ee6330b949f30082d1045c69ebd15c6df2093e07d4565a8488998164b8184f49"
+    },
+    "animation-vocabulary": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/animation-vocabulary/SKILL.md",
+      "computedHash": "0b69987e4592b35b445c83e35aa5427731141c187be70b7847f6b507c103887e"
+    },
+    "apple-design": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/apple-design/SKILL.md",
+      "computedHash": "a78373273de67017e0b217a936d88782a2ab27ef54aa7150f0e7d30739823824"
+    },
+    "ask-sonner": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/ask-sonner/SKILL.md",
+      "computedHash": "026d35db318ee79b8e497b3a317f655ef3de1d8a95b04cf488cf1c176e20266e"
+    },
+    "audit": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/audit/SKILL.md",
+      "computedHash": "fe77d181de0a8e2595d6d74f540ad63dd87ce6f5613fb746191e3ea834fe76c8"
+    },
+    "avatar": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/avatar/SKILL.md",
+      "computedHash": "25537f172ee8f518a374451e432eec4c4bbb667220cdc0f5eb8bcb2b697ab62a"
+    },
+    "blank-page": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/blank-page/SKILL.md",
+      "computedHash": "1bd07c915b1f10538944934e9f8526a228b5c986d45dd82a1afaaf994884e1a0"
+    },
+    "bots": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/bots/SKILL.md",
+      "computedHash": "0693e337f1cdcf089cdafceb55621947e4dd29c38d623fe55e4d8f209a2166fd"
+    },
+    "break-ui": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/break-ui/SKILL.md",
+      "computedHash": "919dcc4c45f389e77e444a20755d3cfb7cda5820c0272e35a263924e20167ee1"
+    },
+    "color": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/color/SKILL.md",
+      "computedHash": "abc6bfcee932281a26e63397890a38d6460bfe153564f3ab33b4ab351a85bf02"
+    },
+    "copy": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/copy/SKILL.md",
+      "computedHash": "bcba0130c24d2e8bcee016b5fb733833d83d6bedbb2c5c38a812e58346d7dee9"
+    },
+    "deconstruct": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/deconstruct/SKILL.md",
+      "computedHash": "78c8ca181f4a6a9221333b7c2b3d529e9f406caac6744631f632641b738e55f9"
+    },
+    "defaults": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/defaults/SKILL.md",
+      "computedHash": "9c44edfff3dfd5d999ec034fc8a6eeb8b406b1b3d18f394332f12d1d17b5adcc"
+    },
+    "emil-design-eng": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/emil-design-eng/SKILL.md",
+      "computedHash": "e4951020f81b917ac65e3fbec43c2932f85d64529ac63b30d70c70085f7153e9"
+    },
+    "find-animation-opportunities": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/find-animation-opportunities/SKILL.md",
+      "computedHash": "f2068e208c77ddb7d0674a91a649f6a43f50e72dc8c8be5dae1603f6980ca440"
+    },
+    "fluid-functionalism": {
+      "source": "mickadesign/fluid-functionalism",
+      "sourceType": "github",
+      "skillPath": "skills/fluid-functionalism/SKILL.md",
+      "computedHash": "6d6ff4a5172bf815356a4cd2041e3efcb189747ce24100849a29ef1ff26975bd"
+    },
+    "frames": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/frames/SKILL.md",
+      "computedHash": "3b3ebac37a638685e8112aa576a6fdf59892af6285cb13edca127ac083ee61f2"
+    },
+    "gather": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/gather/SKILL.md",
+      "computedHash": "494d4636c05ed57bca8cc09b386a1d83601fe6053a8139d2354d5a4673190858"
+    },
+    "icons": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/icons/SKILL.md",
+      "computedHash": "f94fcf621336fa0c111fd386c5e7f554707881490c9642c09abe6ae347bbf276"
+    },
+    "improve-animations": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/improve-animations/SKILL.md",
+      "computedHash": "a97d29ffcca20edb5d20f116bf215fd8af4e0882a4b35947891470ddf239c953"
+    },
+    "keyboard": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/keyboard/SKILL.md",
+      "computedHash": "222be20156a2c589e4d8139e6b1dccbe19198fee5e62ca704ffe6eb972408918"
+    },
+    "lab": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/lab/SKILL.md",
+      "computedHash": "5c10edd9f81a99ad439d52fe095ea6d3c55c6fb19bcba1c4509f2ba308a54bde"
+    },
+    "match": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/match/SKILL.md",
+      "computedHash": "5c113db9796ec1547ae1c1f4d070eb049372dfddd9b4d90cf9c07ab195d952db"
+    },
+    "mobile-native": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/mobile-native/SKILL.md",
+      "computedHash": "2d4e839e1b4cc317a37a7cfdbb1b4e98c392b500b6cb845e2e00e1b6f7e85d87"
+    },
+    "motion": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/motion/SKILL.md",
+      "computedHash": "ba8db057be62159b4b03bfdcb3a7211252d450f602c71387f1f9ce9ac1b1c339"
+    },
+    "pick-ui-library": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/pick-ui-library/SKILL.md",
+      "computedHash": "1b086aca392c3a0593aa144ce60d6c545a4e7ca29eed8b261cc41503a01f2ea4"
+    },
+    "playful-design-router": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/playful-design-router/SKILL.md",
+      "computedHash": "1a45686df0de018057ed284dd9cdd8608fcc26ea88bc18cab5a5ec4ca3c0e534"
+    },
+    "prose": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/prose/SKILL.md",
+      "computedHash": "54b83350df7335ee04e69571f908fae9da3f0f335837826103af044dcf72df18"
+    },
+    "prototype": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/prototype/SKILL.md",
+      "computedHash": "de4261dc12d48ec6c6ccf94d1b11f3be9794ab7f4bf625ac5fcc78361e5ee0b0"
+    },
+    "remove-animations": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/remove-animations/SKILL.md",
+      "computedHash": "43d18c8fe435b968e6f7d0d191286a194146d726c7e48ac598b9083de70c3eb0"
+    },
+    "restraint": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/restraint/SKILL.md",
+      "computedHash": "0031945ff515237c6e93884698937a62739df6e882739c04c7ae2cd264360536"
+    },
+    "reuse": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/reuse/SKILL.md",
+      "computedHash": "c84910136d5fc6a6951bfb59f3ac6da0a0e46fc6416d66be86f68f81032b73d6"
+    },
+    "review-animations": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/review-animations/SKILL.md",
+      "computedHash": "4e75c7391c015acb09477e7384285007d6a91862ddf06265f0a2c8c491081766"
+    },
+    "rule": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/rule/SKILL.md",
+      "computedHash": "5436646ddca2a590ae6dabff2258bf3c816a1871b261e2467a8b9666de04b4b0"
+    },
+    "scope": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/scope/SKILL.md",
+      "computedHash": "c6cd88d5ddc1c9a9f4460abf3bb03411ff0f77dedde1b2d94062dffd7abfa359"
+    },
+    "ship": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/ship/SKILL.md",
+      "computedHash": "afb4c5878d7eb81bb3a934f33019d4d839c85aefc0301b5709c51d88deca6e96"
+    },
+    "sketchbook": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/sketchbook/SKILL.md",
+      "computedHash": "fa1a590367dbcdee07a2c20a9403c3f6a0122dfe804491a61ca777613e51033b"
+    },
+    "stageshow": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/stageshow/SKILL.md",
+      "computedHash": "4069ec2864439c5d1be0efc97cf212884a1cb24494c2a036a76f6efa84c0f5e6"
+    },
+    "ui-sdk": {
+      "source": "vercel-labs/ui",
+      "sourceType": "github",
+      "skillPath": "packages/core/skills/ui-sdk/SKILL.md",
+      "computedHash": "fd6d1a85ce608430e8b77b005e6263eaa7cda9e92c5c5ef0c669132906103bd2"
+    },
+    "verify": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/verify/SKILL.md",
+      "computedHash": "7de34c34d8eb7f33afce8d6ad0df5b0c18790c32a46b39212dc6206d8f2cf645"
+    },
+    "viewports": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/viewports/SKILL.md",
+      "computedHash": "0e375630961c65eb663d95aa1dcff1193c525c276acdbcc659737f9980418255"
+    },
+    "web-design-guidelines": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/web-design-guidelines/SKILL.md",
+      "computedHash": "79be6a83d71987900e77005fd2c766713fafd20b3890141d54d111aa020dd770"
+    },
+    "write-swift": {
+      "source": "playful-design/router",
+      "sourceType": "github",
+      "skillPath": "skills/write-swift/SKILL.md",
+      "computedHash": "3c1b9a4e1e72447d2e7386c6894edd9b2531cc5cff9b68a5125f1661babcb570"
+    }
+  }
+}

@@ -1,4 +1,6 @@
 #!/usr/bin/env sh
 
-git diff --cached --name-only --diff-filter=ACMR -z | xargs -0 -r bunx biome check --write --
-git diff --cached --name-only --diff-filter=ACMR -z | git add --pathspec-from-file=- --pathspec-file-nul
+# Keep backend formatting scoped; the web workspace uses ESLint.
+cd apps/backend || exit 1
+git diff --cached --name-only --relative --diff-filter=ACMR -z -- . | xargs -0 -r bunx biome check --write -- || exit 1
+git diff --cached --name-only --relative --diff-filter=ACMR -z -- . | git add --pathspec-from-file=- --pathspec-file-nul

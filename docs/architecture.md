@@ -1,8 +1,9 @@
 # Architecture
 
-The service has an API, a worker, Postgres, and Redis.
+The monorepo contains a Next.js web app, an API, a worker, Postgres, and Redis.
 It uses one shared GitHub identity for a trusted workspace.
-It does not include a web interface, GitHub App, or webhook endpoint.
+The web app proxies requests to the API using an HTTP-only session cookie.
+It does not include a GitHub App or webhook endpoint.
 
 ## Task execution
 
@@ -22,14 +23,14 @@ It does not confirm that tests passed. Read the summary for command results.
 
 ## Sandbox providers
 
-`src/sandbox/contracts.ts` defines `SandboxProvider`: a task ID produces an isolated
+`apps/backend/src/sandbox/contracts.ts` defines `SandboxProvider`: a task ID produces an isolated
 `Sandbox` with command execution, file transfer, public Git cloning, and disposal.
 Command timeouts use seconds; nonzero exits are returned, while transport failures
 reject. Disposal must stop running commands, be safe after success, and allow retries
 after failure. Providers must enforce a bounded lifetime if backend cleanup fails.
 The shared runtime requires Linux with sh, git, Node/npm, and GNU timeout.
 
-`src/sandbox/repository.ts` wraps any provider with private repository bundle loading
+`apps/backend/src/sandbox/repository.ts` wraps any provider with private repository bundle loading
 and the shared Codex runtime. GitHub credentials remain in the backend. Provider
 adapters do not own prompts, patch collection, or execution error classification.
 
@@ -92,15 +93,18 @@ See the [setup instructions](../README.md#setup) for GitHub token permissions.
 
 ## Code structure
 
-- `src/api`: HTTP requests and authentication.
-- `src/worker`: job execution.
-- `src/queue`: queue connections and task dispatch.
-- `src/tasks`: task state and publication control.
-- `src/execution`: shared execution contracts, results, failures, and limits.
-- `src/agent`: Codex prompt/output contract, runtime commands, and artifact collection.
-- `src/sandbox`: provider contract, provider adapters, shared repository loading, and patch-generation script.
-- `src/github`: shared client policy, repository access, issues, and publication.
-- `src/db` and `migrations`: database access and schema changes.
+The API and worker share one backend workspace. `apps/web` owns the Next.js
+interface and server proxy routes. Both apps use the root Bun lockfile.
+
+- `apps/backend/src/api`: HTTP requests and authentication.
+- `apps/backend/src/worker`: job execution.
+- `apps/backend/src/queue`: queue connections and task dispatch.
+- `apps/backend/src/tasks`: task state and publication control.
+- `apps/backend/src/execution`: shared execution contracts, results, failures, and limits.
+- `apps/backend/src/agent`: Codex prompt/output contract, runtime commands, and artifact collection.
+- `apps/backend/src/sandbox`: provider contract, provider adapters, shared repository loading, and patch-generation script.
+- `apps/backend/src/github`: shared client policy, repository access, issues, and publication.
+- `apps/backend/src/db` and `apps/backend/migrations`: database access and schema changes.
 
 ## Checks
 

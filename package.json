@@ -7,41 +7,33 @@
   "engines": {
     "node": ">=24 <26"
   },
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "dev:api": "NODE_ENV=development tsx watch --env-file=.env src/api/main.ts",
-    "dev:worker": "NODE_ENV=development tsx watch --env-file=.env src/worker/main.ts",
-    "build": "tsc -p tsconfig.build.json --noEmit && bun build src/api/main.ts src/worker/main.ts src/db/migrate.ts --target=node --external @daytona/sdk --external e2b --external freestyle --external @hono/node-server --external bullmq --external hono --external ioredis --external octokit --external pg --external pino --external zod --root=src --outdir=dist --sourcemap=linked",
-    "start:api": "node dist/api/main.js",
-    "start:worker": "node dist/worker/main.js",
-    "db:migrate": "tsx --env-file=.env src/db/migrate.ts",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check .",
-    "format": "biome check --write .",
-    "test": "vitest run",
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
+    "dev": "concurrently --kill-others --names api,worker,web \"bun run dev:api\" \"bun run dev:worker\" \"bun run dev:web\"",
+    "dev:api": "bun run --cwd apps/backend dev:api",
+    "dev:worker": "bun run --cwd apps/backend dev:worker",
+    "start:api": "bun run --cwd apps/backend start:api",
+    "start:worker": "bun run --cwd apps/backend start:worker",
+    "db:migrate": "bun run --cwd apps/backend db:migrate",
+    "dev:web": "bun run --cwd apps/web dev",
+    "start:web": "bun run --cwd apps/web start",
+    "build": "bun run --cwd apps/backend build && bun run --cwd apps/web build",
+    "lint": "bun run --cwd apps/backend lint && bun run --cwd apps/web lint",
+    "typecheck": "bun run --cwd apps/backend typecheck && bun run --cwd apps/web typecheck",
+    "test": "bun run --cwd apps/backend test && bun run --cwd apps/web test",
+    "check": "bun run --cwd apps/backend check && bun run --cwd apps/web check",
+    "format": "bun run --cwd apps/backend format",
     "prepare": "husky"
   },
-  "dependencies": {
-    "@daytona/sdk": "0.227.0",
-    "@hono/node-server": "2.1.5",
-    "bullmq": "6.5.3",
-    "e2b": "2.63.0",
-    "freestyle": "0.2.23",
-    "hono": "4.13.14",
-    "ioredis": "6.0.0",
-    "octokit": "5.0.5",
-    "pg": "8.23.1",
-    "pino": "10.4.0",
-    "zod": "4.6.7"
-  },
   "devDependencies": {
-    "@biomejs/biome": "2.6.4",
-    "@types/node": "26.6.6",
-    "@types/pg": "8.23.1",
     "husky": "^9.1.7",
-    "pino-pretty": "13.2.0",
-    "tsx": "4.23.15",
-    "typescript": "7.0.2",
-    "vitest": "4.1.12"
-  }
+    "concurrently": "^9.2.1",
+    "typescript": "^5"
+  },
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
 }

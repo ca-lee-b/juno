@@ -7,3 +7,9 @@ coverage/
 !.env.example
 *.log
 .DS_Store
+
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
