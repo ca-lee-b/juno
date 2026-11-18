@@ -161,7 +161,7 @@ Every sandbox installs `codebase-design` (mattpocock/skills) and `code-simplifie
 and both source revisions are pinned in `apps/backend/src/agent/runtime.ts`. Skills are installed
 globally inside the sandbox, outside the repository and generated patch. If either
 installation fails, the task fails setup instead of running without its built-in skills.
-The default execution limit is ten minutes (`AGENT_TIMEOUT_MS=600000`).
+The default execution limit is twenty minutes (`AGENT_TIMEOUT_MS=1200000`).
 The sandbox lifetime is thirty minutes. Existing `.env` values override the default execution limit.
 
 After an upgrade, apply migrations and restart the API and worker.
