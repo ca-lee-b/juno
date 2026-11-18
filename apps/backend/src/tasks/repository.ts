@@ -3,7 +3,7 @@ import type { Database } from "@/db/client";
 import type { TaskInput } from "@/tasks/input";
 import { IdempotencyConflict, type Task } from "@/tasks/types";
 
-const columns = `id, session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
+const columns = `id, issue_title AS "issueTitle", session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
   source_sha AS "sourceSha", source_branch AS "sourceBranch", result, model, prompt_version AS "promptVersion", usage,
   error_code AS "errorCode", created_at AS "createdAt", updated_at AS "updatedAt",
   (SELECT jsonb_build_object(
@@ -92,14 +92,31 @@ export class TaskRepository {
     };
   }
 
-  async context(root: string) {
+  async conversation(root: string, before?: string) {
     return (
-      await this.db.query<{ instruction: string | null; summary: string }>(
-        `SELECT instruction,left(result->>'summary',2000) AS summary FROM tasks
-      WHERE (id=$1 OR session_id=$1) AND status='completed' ORDER BY created_at DESC LIMIT 10`,
+      await this.db.query<{ id: string; role: string; body: string }>(
+        `
+      WITH runs AS (SELECT * FROM tasks WHERE (id=$1 OR session_id=$1)
+        AND ($2::uuid IS NULL OR created_at < (SELECT created_at FROM tasks WHERE id=$2)))
+      SELECT id,role,body FROM (
+        SELECT t.id::text,'user' AS role,instruction AS body,created_at FROM runs t WHERE instruction IS NOT NULL
+        UNION ALL SELECT 'msg-'||m.id,m.role,m.body,m.created_at FROM task_messages m JOIN runs t ON t.id=m.task_id
+        UNION ALL SELECT 'summary-'||id,'assistant',result->>'summary',updated_at FROM runs
+          WHERE result IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task_messages m WHERE m.task_id=runs.id AND m.role='assistant')
+      ) transcript ORDER BY created_at,id`,
+        [root, before ?? null],
+      )
+    ).rows;
+  }
+
+  async latestDraft(root: string) {
+    return (
+      await this.db.query<Task>(
+        `SELECT ${columns} FROM tasks WHERE (id=$1 OR session_id=$1)
+      AND status='completed' ORDER BY created_at DESC,id DESC LIMIT 1`,
         [root],
       )
-    ).rows.reverse();
+    ).rows[0];
   }
 
   async turns(root: string) {
@@ -111,18 +128,14 @@ export class TaskRepository {
     ).rows;
   }
 
-  async followUp(root: string, instruction: string, id: string) {
-    await this.db.query(
-      `WITH added AS (
-      INSERT INTO tasks(id,idempotency_key,input,session_id,instruction)
-      SELECT $2::uuid,'turn-' || $2::uuid::text,t.input,t.id,$3 FROM tasks t
-      JOIN task_publications p ON p.task_id=t.id AND p.status='published'
-      WHERE t.id=$1 AND t.session_id IS NULL ON CONFLICT DO NOTHING RETURNING id
-    ) INSERT INTO task_outbox(task_id) SELECT id FROM added`,
-      [root, id, instruction],
-    );
-    const turn = await this.get(id);
-    return turn?.sessionId === root && turn.instruction === instruction ? turn : undefined;
+  async send(root: string, body: string, key: string) {
+    return (
+      await this.db.query<{ id: string }>("SELECT send_session_message($1,$2,$3) AS id", [
+        root,
+        key,
+        body,
+      ])
+    ).rows[0];
   }
 
   async closeMessages(id: string, delivered: number) {
@@ -146,21 +159,17 @@ export class TaskRepository {
     ).rows;
   }
 
-  async message(id: string, role: "user" | "assistant", body: string) {
-    return (
-      (
-        await this.db.query(
-          `WITH active AS (UPDATE tasks SET user_message_count=user_message_count+CASE WHEN $2='user' THEN 1 ELSE 0 END WHERE id=$1 AND (accepting_messages OR $2='assistant') AND status IN ('queued','running') RETURNING id) INSERT INTO task_messages(task_id,role,body) SELECT id,$2,$3 FROM active RETURNING id`,
-          [id, role, body],
-        )
-      ).rows.length > 0
-    );
+  async reply(id: string, body: string) {
+    await this.db.query("INSERT INTO task_messages(task_id,role,body) VALUES($1,'assistant',$2)", [
+      id,
+      body,
+    ]);
   }
 
   async pending() {
     return (
       await this.db.query<{ taskId: string }>(
-        `SELECT task_id AS "taskId" FROM task_outbox WHERE published_at IS NULL LIMIT 100`,
+        `SELECT task_id AS "taskId" FROM task_outbox o JOIN tasks t ON t.id=o.task_id WHERE published_at IS NULL AND NOT EXISTS (SELECT 1 FROM tasks earlier WHERE (earlier.id=t.session_id OR earlier.session_id=t.session_id) AND earlier.created_at<t.created_at AND earlier.status IN ('queued','running')) LIMIT 100`,
       )
     ).rows;
   }
@@ -187,10 +196,10 @@ export class TaskRepository {
     ]);
   }
 
-  async setSource(id: string, sha: string, branch: string) {
+  async setSource(id: string, sha: string, branch: string, title?: string) {
     await this.db.query(
-      "UPDATE tasks SET source_sha = COALESCE(source_sha, $2), source_branch = COALESCE(source_branch, $3), updated_at = now() WHERE id = $1",
-      [id, sha, branch],
+      "UPDATE tasks SET issue_title=COALESCE(issue_title,$4), source_sha = COALESCE(source_sha, $2), source_branch = COALESCE(source_branch, $3), updated_at = now() WHERE id = $1",
+      [id, sha, branch, title ?? null],
     );
   }
 

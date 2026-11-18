@@ -47,7 +47,9 @@ function setup() {
     error: null,
   };
   const client = Object.assign(new EventEmitter(), {
-    query: vi.fn().mockResolvedValue({ rows: [{ locked: true }] }),
+    query: vi.fn().mockImplementation(async (sql: string) => ({
+      rows: sql.includes("SELECT 1 FROM tasks") ? [] : [{ locked: true }],
+    })),
     release: vi.fn(),
   });
   const pool = { connect: vi.fn().mockResolvedValue(client) };
@@ -212,6 +214,7 @@ it("does not turn cleanup failure into publication failure, and releases a broke
   s.commit.dispose.mockRejectedValue(new Error("cleanup"));
   s.client.query
     .mockResolvedValueOnce({ rows: [{ locked: true }] })
+    .mockResolvedValueOnce({ rows: [] })
     .mockRejectedValueOnce(new Error("unlock failed"));
   expect(await s.publish(s.task)).toMatchObject({ httpStatus: 201 });
   expect(s.client.release).toHaveBeenCalledExactlyOnceWith(true);

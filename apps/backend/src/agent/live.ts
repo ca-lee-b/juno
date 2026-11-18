@@ -60,7 +60,7 @@ export async function runLive(
         delivered: string;
       };
       for (const body of state.replies.slice(saved)) {
-        await tasks.message(id, "assistant", body);
+        await tasks.reply(id, body);
         saved++;
       }
       if (state.idle && !closed && (messages.at(-1)?.id ?? "0") === state.delivered)

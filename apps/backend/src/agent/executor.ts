@@ -59,7 +59,7 @@ export function createExecutor(
       INSTRUCTIONS +
         JSON.stringify(issue) +
         (issue.instruction
-          ? "\nThis PR already implements the issue. Apply this follow-up request:\n" +
+          ? "\nContinue from the current checkout. Apply this follow-up request:\n" +
             issue.instruction
           : ""),
       issue.sha,

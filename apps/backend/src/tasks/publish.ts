@@ -13,6 +13,8 @@ export type PublishResult =
 
 export function createPublisher(pool: Pick<pg.Pool, "connect">, token?: string) {
   return async (task: Task): Promise<PublishResult> => {
+    const runId = task.id;
+    task = { ...task, id: task.sessionId ?? task.id };
     if (task.publication?.prUrl) return { httpStatus: 200, publication: task.publication };
     if (
       task.status !== "completed" ||
@@ -56,6 +58,11 @@ export function createPublisher(pool: Pick<pg.Pool, "connect">, token?: string) 
       if (!locked) return { httpStatus: 202, status: "in_progress" };
       const old = await publications.get(task.id);
       if (old?.prUrl) return { httpStatus: 200, publication: old };
+      const newer = await client.query(
+        "SELECT 1 FROM tasks WHERE session_id=$1 AND created_at>(SELECT created_at FROM tasks WHERE id=$2) AND status<> 'failed' LIMIT 1",
+        [task.id, runId],
+      );
+      if (newer.rows.length) return { httpStatus: 409, error: "A newer revision is available" };
       // Owning the lock, not a persisted status, determines whether an attempt is active.
       const github = createGitHubPublisher(token, task.input, signal);
       const branch = old?.branch ?? `byo-pr-agent/${task.id}`;

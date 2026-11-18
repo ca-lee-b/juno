@@ -22,6 +22,7 @@ export class PublicationError extends Error {
   }
 }
 export type Task = {
+  issueTitle?: string | null;
   sessionId?: string | null;
   instruction?: string | null;
   id: string;

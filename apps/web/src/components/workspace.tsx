@@ -22,7 +22,7 @@ import {
 } from "@ui-sdk/react/drawer";
 import { WorkspaceCommandMenu } from "@/components/workspace-command-menu";
 import { DraftPrAction } from "@/components/draft-pr-action";
-import { TaskSession } from "@/components/task-session";
+import { TaskSession, type Session } from "@/components/task-session";
 import { TaskDiff } from "@/components/task-diff";
 import { MarkdownSummary } from "@/components/markdown-summary";
 import { Button } from "@/components/ui/button";
@@ -156,10 +156,25 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
       setConnectionOpen(false);
     },
   });
+  const [selected, setSelected] = useState("");
+  const session = useQuery({
+    queryKey: ["session", id],
+    queryFn: () => request<Session>(`/api/tasks/${id}/session`),
+    enabled: !!id && !!connection.data?.connected,
+    refetchInterval: 2000,
+  });
+  const root = session.data?.turns[0]?.id;
+  useEffect(() => {
+    if (root && root !== id) {
+      window.history.replaceState(null, "", `/tasks/${root}`);
+    }
+  }, [id, root]);
+  const current =
+    session.data?.turns.find((t) => t.id === selected)?.id ?? session.data?.turns.at(-1)?.id ?? id;
   const task = useQuery({
-    queryKey: ["task", id],
+    queryKey: ["task", current],
     queryFn: ({ signal }) =>
-      request<{ task: Task }>(`/api/tasks/${encodeURIComponent(id)}`, { signal }).then(
+      request<{ task: Task }>(`/api/tasks/${encodeURIComponent(current)}`, { signal }).then(
         (r) => r.task,
       ),
     enabled: !!id && !!connection.data?.connected,
@@ -280,13 +295,29 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
         <DrawerContent initialFocus="content" className="issue-drawer">
           <div className="flex shrink-0 items-center justify-between border-b border-line px-6 py-4">
             <DrawerTitle className="text-caption font-medium text-muted-foreground">
-              Issue Brief
+              {task.data?.issueTitle ||
+                (task.data ? `Issue #${task.data.input.issueNumber}` : "Issue session")}
             </DrawerTitle>
             <DrawerClose aria-label="Close issue brief" className="issue-close">
               <X size={18} aria-hidden />
             </DrawerClose>
           </div>
-          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain lg:grid lg:grid-cols-[minmax(320px,0.85fr)_minmax(0,1.15fr)] lg:items-start">
+            {connection.data?.connected && session.data && (
+              <div className="px-6 pt-4 lg:sticky lg:top-0 lg:max-h-full lg:overflow-auto">
+                <TaskSession
+                  key={id}
+                  id={id}
+                  session={session.data}
+                  select={setSelected}
+                  refresh={() => {
+                    setSelected("");
+                    void session.refetch();
+                  }}
+                />
+              </div>
+            )}
+            {session.error && <p role="alert">{session.error.message}</p>}
             {!connection.data?.connected ? (
               <div className="p-8 space-y-4">
                 <p>Connect your server to open this task.</p>
@@ -302,7 +333,7 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
                 <Button onClick={() => task.refetch()}>Try Again</Button>
               </div>
             ) : (
-              task.data && <TaskView key={task.data.id} task={task.data} newTask={newTask} navigate={navigate} />
+              task.data && <TaskView key={task.data.id} task={task.data} />
             )}
           </div>
         </DrawerContent>
@@ -445,8 +476,8 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
   );
 }
 
-function TaskView({ task, newTask, navigate }: { task: Task; navigate:(id:string)=>void; newTask: (input?: TaskInput) => void }) {
-  const [diffOpen, setDiffOpen] = useState(false);
+function TaskView({ task }: { task: Task }) {
+  const [diffOpen, setDiffOpen] = useState(!!task.result);
   const reduceMotion = useReducedMotion();
   const [hasShownResult, setHasShownResult] = useState(Boolean(task.result));
   const active = isTaskActive(task.status);
@@ -536,7 +567,7 @@ function TaskView({ task, newTask, navigate }: { task: Task; navigate:(id:string
             },
           )}
         </ol>
-        <TaskSession key={task.id} task={task} navigate={navigate} />
+
         {task.result && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-3">
             <Tabs
@@ -593,21 +624,7 @@ function TaskView({ task, newTask, navigate }: { task: Task; navigate:(id:string
                         ? "The result could not be collected"
                         : "The agent could not complete this run"}
                     </h2>
-                    <p className="note">
-                      There is no completed result for this task. Keep the task ID and error code to
-                      investigate this run.
-                    </p>
-                    <div className="flex flex-wrap items-center gap-5">
-                      <Button
-                        variant="primary"
-                        trailingIcon={ArrowRight}
-                        onClick={() => newTask(task.input)}
-                      >
-                        Create new task
-                      </Button>
-                      <span className="note">Use the same issue to start again.</span>
-                    </div>
-                    <p className="note">Creating a new task starts a separate paid run.</p>
+                    <p className="note">Send a message to continue this session.</p>
                   </div>
                 </section>
               )}
@@ -642,13 +659,12 @@ function TaskView({ task, newTask, navigate }: { task: Task; navigate:(id:string
                 Run Details
               </div>
               <aside className="space-y-5 pt-4">
-                  <dl className="grid grid-cols-2 gap-5">
+                <dl className="grid grid-cols-2 gap-5">
                     {[
                       ["Created", new Date(task.createdAt).toLocaleString()],
                       ["Attempt", String(task.attempts)],
                       ["Source commit", task.sourceSha?.slice(0, 7) || "Not available yet"],
-                      ["Environment", "Daytona sandbox"],
-                      ...(task.model ? [["Model", task.model]] : []),
+                        ...(task.model ? [["Model", task.model]] : []),
                     ].map(([label, value]) => (
                       <div key={label}>
                         <dt className="mb-2 text-caption text-muted-foreground">{label}</dt>

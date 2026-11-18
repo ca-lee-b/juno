@@ -80,12 +80,33 @@ describe("execution lifecycle", () => {
     expect(sandbox.dispose).toHaveBeenCalledOnce();
     expect(tasks.setSandbox).toHaveBeenLastCalledWith("task-1", null);
   });
+  it("restores the unpublished patch and prior answers before revising", async () => {
+    const { task, tasks, readIssue, createSandbox, sandbox, execute, result } = setup();
+    const draft = { ...task, ...result };
+    task.sessionId = "original";
+    task.instruction = "Change the heading";
+    const history = [{ id: "1", role: "user", body: "Use cobalt" }];
+    const handle = createExecutionHandler({
+      tasks: { ...tasks, latestDraft: async () => draft, conversation: async () => history },
+      readIssue,
+      createSandbox,
+      execute,
+      logger: createLogger("silent"),
+    });
+    await handle(task.id, true);
+    expect(sandbox.clone).toHaveBeenCalledWith(
+      expect.objectContaining({ history, instruction: task.instruction }),
+      draft.result.patch,
+    );
+    expect(tasks.complete).toHaveBeenCalledExactlyOnceWith(task.id, result);
+  });
   it("uses the current PR head and retries publication without running Codex again", async () => {
     const { task, tasks, readIssue, createSandbox, execute, result } = setup();
     const sha = "b".repeat(40);
     Object.assign(task, {
       sourceSha: null,
       sessionId: "original",
+      publication: { prNumber: 1 },
       instruction: "Update the heading",
     });
     const revisions = {

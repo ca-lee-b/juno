@@ -8,7 +8,9 @@ List tasks with authenticated `GET /v1/tasks` (`limit` 1–100, `offset`, option
 
 Poll `GET /v1/tasks/:id` with the same bearer token. A `completed` task contains `result.summary`, `result.patch`, and available usage. Completion means artifacts were captured, not that tests passed. Submitting tasks invokes paid OpenAI and sandbox provider services.
 
-A completed task can be explicitly published with authenticated `POST /v1/tasks/:id/draft-pr`. It returns the saved publication on repeats; publishing never runs automatically. Draft PR creation requires server-side `GITHUB_TOKEN` with **Contents: write**, **Pull requests: write**, and **Issues: read**. The API stores the publication and exposes it on task details and lists. It does not run tests, rebase, merge, publish forks, or sync subsequent changes.
+Read the ordered conversation and run IDs with `GET /v1/tasks/:id/session`. Send `{ "messageId": "<uuid>", "body": "<text>" }` to `POST /v1/tasks/:id/session`. Reuse the message ID when retrying a send. The server delivers it to the active run or queues a revision. Before publication, each revision starts with the previous draft and produces a cumulative patch.
+
+The latest completed draft can be explicitly published with authenticated `POST /v1/tasks/:id/draft-pr`. It returns the saved publication on repeats; publishing never runs automatically. Draft PR creation requires server-side `GITHUB_TOKEN` with **Contents: write**, **Pull requests: write**, and **Issues: read**. The API stores the publication and exposes it on task details and lists. After publication, successful follow-ups push to the same PR if its head still matches the revision’s source commit.
 
 After reviewing the saved patch and summary:
 

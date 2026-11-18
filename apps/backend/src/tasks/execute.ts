@@ -13,7 +13,7 @@ import type { createRevisionPublisher } from "@/tasks/revision";
 type Dependencies = {
   revisions?: ReturnType<typeof createRevisionPublisher>;
   tasks: Pick<TaskRepository, "start" | "setSource" | "setSandbox" | "complete" | "fail"> &
-    Partial<Pick<TaskRepository, "context">>;
+    Partial<Pick<TaskRepository, "conversation" | "latestDraft">>;
   readIssue: (input: TaskInput, sourceSha: string | null) => Promise<IssueContext>;
   createSandbox: (taskId: string, retry?: boolean) => Promise<RepositorySandbox>;
   execute: Execute;
@@ -40,21 +40,25 @@ export function createExecutionHandler({
         await tasks.complete(taskId, task);
         return;
       }
-      const head = task.sessionId ? await revisions?.head(task) : undefined;
-      if (task.sessionId && !head) throw new Error("Missing PR");
-      const issue = await readIssue(task.input, task.sourceSha ?? head?.sha ?? null);
-      if (head) {
-        issue.reviewComments = (await revisions?.comments(task)) ?? [];
-        issue.branch = head.branch;
+      const head =
+        task.sessionId && task.publication?.prNumber ? await revisions?.head(task) : undefined;
+      const draft = task.sessionId && !head ? await tasks.latestDraft?.(task.sessionId) : undefined;
+      const issue = await readIssue(
+        task.input,
+        task.sourceSha ?? head?.sha ?? draft?.sourceSha ?? null,
+      );
+      if (task.sessionId) {
+        if (head) issue.reviewComments = (await revisions?.comments(task)) ?? [];
+        issue.branch = head?.branch ?? draft?.sourceBranch ?? issue.branch;
         issue.instruction = task.instruction ?? "";
-        if (task.sessionId) issue.history = (await tasks.context?.(task.sessionId)) ?? [];
+        issue.history = (await tasks.conversation?.(task.sessionId, taskId)) ?? [];
       }
-      await tasks.setSource(taskId, issue.sha, issue.branch);
+      await tasks.setSource(taskId, issue.sha, issue.branch, issue.title);
       operation = "create sandbox";
       sandbox = await createSandbox(taskId, task.attempts > 1);
       await tasks.setSandbox(taskId, sandbox.id);
       operation = "checkout repository";
-      await sandbox.clone(issue);
+      await sandbox.clone(issue, draft?.result?.patch);
       operation = "run agent";
       const result = await execute(issue, sandbox);
       if (head && revisions) {

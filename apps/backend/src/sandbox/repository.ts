@@ -24,7 +24,7 @@ export function createRepositorySandboxProvider(
     const sandbox = await provider(taskId);
     return {
       id: sandbox.id,
-      async clone(issue) {
+      async clone(issue, patch) {
         // Fetch on the worker when available so Daytona checkout does not depend on sandbox DNS.
         if (issue.private || (config.SANDBOX_PROVIDER === "daytona" && config.GITHUB_TOKEN)) {
           if (!config.GITHUB_TOKEN) throw new ExecutionError("SETUP_FAILED");
@@ -37,13 +37,22 @@ export function createRepositorySandboxProvider(
             120,
           );
           if (cloned.exitCode !== 0) throw new ExecutionError("SETUP_FAILED");
-          return;
+        } else
+          await sandbox.clone(
+            `https://github.com/${issue.owner}/${issue.repo}.git`,
+            "/tmp/repository",
+            issue.sha,
+          );
+        if (patch) {
+          await sandbox.uploadFile(Buffer.from(patch), "/tmp/draft.patch");
+          const applied = await sandbox.executeCommand(
+            "git apply --binary /tmp/draft.patch",
+            "/tmp/repository",
+            undefined,
+            30,
+          );
+          if (applied.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", applied.exitCode);
         }
-        await sandbox.clone(
-          `https://github.com/${issue.owner}/${issue.repo}.git`,
-          "/tmp/repository",
-          issue.sha,
-        );
       },
       execute: (prompt, sha) =>
         runCodex(

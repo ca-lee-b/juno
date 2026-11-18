@@ -2,7 +2,7 @@ import type { TaskInput } from "@/tasks/input";
 
 export type IssueContext = TaskInput & {
   reviewComments?: { path: string; line: number | null; body: string }[];
-  history?: { instruction: string | null; summary: string }[];
+  history?: { role: string; body: string }[];
   instruction?: string;
   title: string;
   body: string;
@@ -36,7 +36,7 @@ export type ExecutionResult = {
 export type SandboxOutput = { summary: string; patch: string; events: string };
 export interface RepositorySandbox {
   id: string;
-  clone(issue: IssueContext): Promise<void>;
+  clone(issue: IssueContext, patch?: string): Promise<void>;
   execute(prompt: string, sha: string): Promise<SandboxOutput>;
   dispose(): Promise<void>;
 }
