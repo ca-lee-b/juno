@@ -1,6 +1,7 @@
 import { Daytona } from "@daytona/sdk";
 import type { WorkerConfig } from "@/config";
-import type { SandboxProvider } from "@/sandbox/contracts";
+import { checkoutCommit } from "@/sandbox/checkout";
+import type { Sandbox, SandboxProvider } from "@/sandbox/contracts";
 
 export function createDaytonaProvider(
   config: Pick<WorkerConfig, "DAYTONA_API_KEY" | "DAYTONA_API_URL">,
@@ -22,15 +23,15 @@ export function createDaytonaProvider(
       },
       { timeout: 60 },
     );
+    const executeCommand: Sandbox["executeCommand"] = (command, cwd, env, timeoutSeconds) =>
+      sandbox.process.executeCommand(command, cwd, env, timeoutSeconds);
     let disposed = false;
     return {
       id: sandbox.id,
-      executeCommand: (command, cwd, env, timeoutSeconds) =>
-        sandbox.process.executeCommand(command, cwd, env, timeoutSeconds),
+      executeCommand,
       uploadFile: (data, path) => sandbox.fs.uploadFile(data, path),
       downloadFile: (path) => sandbox.fs.downloadFile(path),
-      clone: (url, path, sha) =>
-        sandbox.git.clone(url, path, undefined, sha, undefined, undefined, false, 1),
+      clone: checkoutCommit(executeCommand),
       async dispose() {
         if (!disposed) {
           await daytona.delete(sandbox, 30, true);

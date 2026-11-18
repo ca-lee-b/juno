@@ -139,23 +139,28 @@ it("classifies artifact download failures", async () => {
   await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");
 });
 
-it("uploads a private Git bundle without exposing the GitHub token to Daytona", async () => {
-  mocks.bundle.mockResolvedValue(Buffer.from("bundle"));
-  const sandbox = await createSandboxProvider({ ...config, GITHUB_TOKEN: "github-secret" })("task");
-  await sandbox.clone({
-    owner: "owner",
-    repo: "repo",
-    issueNumber: 1,
-    title: "issue",
-    body: "",
-    sha: "a".repeat(40),
-    branch: "main",
-    private: true,
-  });
-  expect(mocks.bundle).toHaveBeenCalledOnce();
-  expect(mocks.upload).toHaveBeenCalledWith(Buffer.from("bundle"), "/tmp/source.bundle");
-  expect(JSON.stringify(mocks.command.mock.calls)).not.toContain("github-secret");
-});
+it.each([true, false])(
+  "uploads the pinned Git bundle without exposing the token (private=%s)",
+  async (privateRepo) => {
+    mocks.bundle.mockResolvedValue(Buffer.from("bundle"));
+    const sandbox = await createSandboxProvider({ ...config, GITHUB_TOKEN: "github-secret" })(
+      "task",
+    );
+    await sandbox.clone({
+      owner: "owner",
+      repo: "repo",
+      issueNumber: 1,
+      title: "issue",
+      body: "",
+      sha: "a".repeat(40),
+      branch: "main",
+      private: privateRepo,
+    });
+    expect(mocks.bundle).toHaveBeenCalledOnce();
+    expect(mocks.upload).toHaveBeenCalledWith(Buffer.from("bundle"), "/tmp/source.bundle");
+    expect(JSON.stringify(mocks.command.mock.calls)).not.toContain("github-secret");
+  },
+);
 
 it("rejects oversized patches before downloading artifacts", async () => {
   mocks.command.mockImplementation(async (command: string) => ({
@@ -197,8 +202,6 @@ it("allows cleanup to be retried after a failed deletion", async () => {
 });
 
 it("preserves Daytona isolation, lifetime, and exact-commit public cloning", async () => {
-  const clone = vi.fn().mockResolvedValue(undefined);
-  mocks.create.mockResolvedValueOnce({ id: "daytona-id", git: { clone } });
   const sandbox = await createDaytonaProvider(config)("task-id");
   expect(mocks.create).toHaveBeenCalledWith(
     {
@@ -212,14 +215,14 @@ it("preserves Daytona isolation, lifetime, and exact-commit public cloning", asy
     { timeout: 60 },
   );
   await sandbox.clone("https://github.com/owner/repo.git", "/tmp/repository", "a".repeat(40));
-  expect(clone).toHaveBeenCalledWith(
-    "https://github.com/owner/repo.git",
-    "/tmp/repository",
+  expect(mocks.command).toHaveBeenCalledWith(
+    expect.stringContaining(`fetch --depth=1 origin '${"a".repeat(40)}'`),
+    "/tmp",
     undefined,
-    "a".repeat(40),
-    undefined,
-    undefined,
-    false,
-    1,
+    120,
   );
+  mocks.command.mockResolvedValueOnce({ exitCode: 128, result: "missing commit" });
+  await expect(
+    sandbox.clone("https://github.com/owner/repo.git", "/tmp/other", "b".repeat(40)),
+  ).rejects.toMatchObject({ code: "SETUP_FAILED", exitCode: 128 });
 });

@@ -1,9 +1,7 @@
 import { CommandExitError, Sandbox as E2BSandbox } from "e2b";
 import type { WorkerConfig } from "@/config";
-import { ExecutionError } from "@/execution/contracts";
+import { checkoutCommit } from "@/sandbox/checkout";
 import type { Sandbox, SandboxProvider } from "@/sandbox/contracts";
-
-const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 
 export function createE2BProvider(config: Pick<WorkerConfig, "E2B_API_KEY">): SandboxProvider {
   return async (taskId) => {
@@ -52,15 +50,7 @@ export function createE2BProvider(config: Pick<WorkerConfig, "E2B_API_KEY">): Sa
       uploadFile: (data, path) => sandbox.files.write(path, data),
       downloadFile: async (path) =>
         Buffer.from(await sandbox.files.read(path, { format: "bytes" })),
-      async clone(url, path, sha) {
-        const result = await executeCommand(
-          `git init ${quote(path)} && git -C ${quote(path)} remote add origin ${quote(url)} && git -C ${quote(path)} fetch --depth=1 origin ${quote(sha)} && git -C ${quote(path)} checkout --detach FETCH_HEAD`,
-          "/tmp",
-          undefined,
-          120,
-        );
-        if (result.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", result.exitCode);
-      },
+      clone: checkoutCommit(executeCommand),
       async dispose() {
         if (!disposed) {
           await sandbox.kill();

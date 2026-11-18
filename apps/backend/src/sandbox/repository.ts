@@ -13,7 +13,7 @@ type RepositoryConfig = Pick<
   | "OPENAI_CODEX_MODEL"
   | "OPENAI_CODEX_MODEL_EFFORT"
   | "AGENT_TIMEOUT_MS"
->;
+> & { SANDBOX_PROVIDER?: WorkerConfig["SANDBOX_PROVIDER"] };
 
 export function createRepositorySandboxProvider(
   config: RepositoryConfig,
@@ -25,7 +25,8 @@ export function createRepositorySandboxProvider(
     return {
       id: sandbox.id,
       async clone(issue) {
-        if (issue.private) {
+        // Fetch on the worker when available so Daytona checkout does not depend on sandbox DNS.
+        if (issue.private || (config.SANDBOX_PROVIDER === "daytona" && config.GITHUB_TOKEN)) {
           if (!config.GITHUB_TOKEN) throw new ExecutionError("SETUP_FAILED");
           const bundle = await repositoryBundle(issue, config.GITHUB_TOKEN);
           await sandbox.uploadFile(bundle, "/tmp/source.bundle");
