@@ -25,6 +25,8 @@ export type Publication = {
   error: string | null;
 };
 export type Task = {
+  sessionId?: string | null;
+  instruction?: string | null;
   id: string;
   input: TaskInput;
   status: TaskStatus;

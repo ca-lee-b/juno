@@ -16,7 +16,8 @@ const repositorySchema = taskInputSchema.pick({ owner: true, repo: true });
 
 type Dependencies = {
   github?: GitHubCatalog | undefined;
-  tasks: Pick<TaskRepository, "create" | "get" | "list">;
+  tasks: Pick<TaskRepository, "create" | "get" | "list"> &
+    Partial<Pick<TaskRepository, "turns" | "followUp" | "messages" | "message">>;
   publish?: ReturnType<typeof createPublisher>;
   apiToken: string;
   ready: () => Promise<void>;
@@ -118,6 +119,40 @@ export function createApp({ tasks, apiToken, ready, logger, github, publish }: D
     if (!parsed.success) return c.json({ error: "Invalid task list filters" }, 400);
     c.header("Cache-Control", "no-store");
     return c.json(await tasks.list(parsed.data));
+  });
+  app.get("/v1/tasks/:id/session", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Invalid task ID" }, 400);
+    const task = await tasks.get(id.data);
+    if (!task || !tasks.turns || !tasks.messages) return c.json({ error: "Task unavailable" }, 404);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      turns: await tasks.turns(task.sessionId ?? task.id),
+      messages: await tasks.messages(task.id),
+    });
+  });
+  app.post("/v1/tasks/:id/session", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    const input = z
+      .object({ body: z.string().trim().min(1).max(8000), turnId: z.uuid().optional() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!id.success || !input.success) return c.json({ error: "Invalid message" }, 400);
+    const task = await tasks.get(id.data);
+    if (!task || !tasks.followUp || !tasks.message)
+      return c.json({ error: "Task unavailable" }, 404);
+    if (input.data.turnId) {
+      const turn = await tasks.followUp(
+        task.sessionId ?? task.id,
+        input.data.body,
+        input.data.turnId,
+      );
+      return turn
+        ? c.json({ id: turn.id }, 202)
+        : c.json({ error: "Publish the PR and finish the active turn first." }, 409);
+    }
+    return (await tasks.message(task.id, "user", input.data.body))
+      ? c.json({ id: task.id }, 202)
+      : c.json({ error: "This run has ended." }, 409);
   });
   app.post("/v1/tasks/:id/draft-pr", async (c) => {
     c.header("Cache-Control", "no-store");

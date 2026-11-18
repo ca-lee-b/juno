@@ -3,13 +3,13 @@ import type { Database } from "@/db/client";
 import type { TaskInput } from "@/tasks/input";
 import { IdempotencyConflict, type Task } from "@/tasks/types";
 
-const columns = `id, input, status, attempts, sandbox_id AS "sandboxId",
+const columns = `id, session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
   source_sha AS "sourceSha", source_branch AS "sourceBranch", result, model, prompt_version AS "promptVersion", usage,
   error_code AS "errorCode", created_at AS "createdAt", updated_at AS "updatedAt",
   (SELECT jsonb_build_object(
     'status',p.status,'branch',p.branch,'baseBranch',p.base_branch,'commitSha',p.commit_sha,
     'branchUrl',p.branch_url,'prNumber',p.pr_number,'prUrl',p.pr_url,'error',p.error
-  ) FROM task_publications p WHERE p.task_id=tasks.id) AS publication`;
+  ) FROM task_publications p WHERE p.task_id=COALESCE(tasks.session_id,tasks.id)) AS publication`;
 
 export class TaskRepository {
   constructor(private readonly db: Database) {}
@@ -60,11 +60,11 @@ export class TaskRepository {
     const search = `%${options.search}%`;
     const filter = `((input->>'owner') || '/' || (input->>'repo') || ' #' || (input->>'issueNumber')) ILIKE $1`;
     const counts = await this.db.query<{ status: Task["status"]; count: number }>(
-      `SELECT status, count(*)::int AS count FROM tasks WHERE ${filter} GROUP BY status`,
+      `SELECT status, count(*)::int AS count FROM tasks WHERE session_id IS NULL AND ${filter} GROUP BY status`,
       [search],
     );
     const result = await this.db.query<Task>(
-      `SELECT ${columns} FROM tasks WHERE ${filter} AND ($2::text IS NULL OR status = $2)
+      `SELECT ${columns} FROM tasks WHERE session_id IS NULL AND ${filter} AND ($2::text IS NULL OR status = $2)
        ORDER BY created_at DESC, id DESC LIMIT $3 OFFSET $4`,
       [search, options.status ?? null, options.limit + 1, options.offset],
     );
@@ -92,6 +92,71 @@ export class TaskRepository {
     };
   }
 
+  async context(root: string) {
+    return (
+      await this.db.query<{ instruction: string | null; summary: string }>(
+        `SELECT instruction,left(result->>'summary',2000) AS summary FROM tasks
+      WHERE (id=$1 OR session_id=$1) AND status='completed' ORDER BY created_at DESC LIMIT 10`,
+        [root],
+      )
+    ).rows.reverse();
+  }
+
+  async turns(root: string) {
+    return (
+      await this.db.query<Pick<Task, "id" | "instruction" | "status" | "createdAt">>(
+        'SELECT id, instruction, status, created_at AS "createdAt" FROM tasks WHERE id=$1 OR session_id=$1 ORDER BY created_at,id',
+        [root],
+      )
+    ).rows;
+  }
+
+  async followUp(root: string, instruction: string, id: string) {
+    await this.db.query(
+      `WITH added AS (
+      INSERT INTO tasks(id,idempotency_key,input,session_id,instruction)
+      SELECT $2::uuid,'turn-' || $2::uuid::text,t.input,t.id,$3 FROM tasks t
+      JOIN task_publications p ON p.task_id=t.id AND p.status='published'
+      WHERE t.id=$1 AND t.session_id IS NULL ON CONFLICT DO NOTHING RETURNING id
+    ) INSERT INTO task_outbox(task_id) SELECT id FROM added`,
+      [root, id, instruction],
+    );
+    const turn = await this.get(id);
+    return turn?.sessionId === root && turn.instruction === instruction ? turn : undefined;
+  }
+
+  async closeMessages(id: string, delivered: number) {
+    return (
+      (
+        await this.db.query(
+          `UPDATE tasks SET accepting_messages=false WHERE id=$1 AND
+      user_message_count=$2 RETURNING id`,
+          [id, delivered],
+        )
+      ).rows.length > 0
+    );
+  }
+
+  async messages(id: string) {
+    return (
+      await this.db.query<{ id: string; role: "user" | "assistant"; body: string }>(
+        "SELECT id,role,body FROM task_messages WHERE task_id=$1 ORDER BY id",
+        [id],
+      )
+    ).rows;
+  }
+
+  async message(id: string, role: "user" | "assistant", body: string) {
+    return (
+      (
+        await this.db.query(
+          `WITH active AS (UPDATE tasks SET user_message_count=user_message_count+CASE WHEN $2='user' THEN 1 ELSE 0 END WHERE id=$1 AND (accepting_messages OR $2='assistant') AND status IN ('queued','running') RETURNING id) INSERT INTO task_messages(task_id,role,body) SELECT id,$2,$3 FROM active RETURNING id`,
+          [id, role, body],
+        )
+      ).rows.length > 0
+    );
+  }
+
   async pending() {
     return (
       await this.db.query<{ taskId: string }>(
@@ -107,7 +172,7 @@ export class TaskRepository {
   async start(id: string) {
     return (
       await this.db.query<Task>(
-        `UPDATE tasks SET status = 'running', attempts = attempts + 1,
+        `UPDATE tasks SET status = 'running', accepting_messages=(result IS NULL), attempts = attempts + 1,
       error_code = NULL, updated_at = now() WHERE id = $1 AND status IN ('queued', 'running')
       RETURNING ${columns}`,
         [id],
@@ -129,9 +194,13 @@ export class TaskRepository {
     );
   }
 
-  async complete(id: string, result: Pick<Task, "result" | "model" | "promptVersion" | "usage">) {
+  async complete(
+    id: string,
+    result: Pick<Task, "result" | "model" | "promptVersion" | "usage">,
+    staged = false,
+  ) {
     await this.db.query(
-      `UPDATE tasks SET status = 'completed', result = $2::jsonb,
+      `UPDATE tasks SET status = $6, result = $2::jsonb,
       model = $3, prompt_version = $4, usage = $5::jsonb, error_code = NULL, updated_at = now()
       WHERE id = $1 AND status = 'running'`,
       [
@@ -140,6 +209,7 @@ export class TaskRepository {
         result.model,
         result.promptVersion,
         JSON.stringify(result.usage),
+        staged ? "running" : "completed",
       ],
     );
   }

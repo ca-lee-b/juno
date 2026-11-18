@@ -22,6 +22,7 @@ import {
 } from "@ui-sdk/react/drawer";
 import { WorkspaceCommandMenu } from "@/components/workspace-command-menu";
 import { DraftPrAction } from "@/components/draft-pr-action";
+import { TaskSession } from "@/components/task-session";
 import { TaskDiff } from "@/components/task-diff";
 import { MarkdownSummary } from "@/components/markdown-summary";
 import { Button } from "@/components/ui/button";
@@ -301,7 +302,7 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
                 <Button onClick={() => task.refetch()}>Try Again</Button>
               </div>
             ) : (
-              task.data && <TaskView key={task.data.id} task={task.data} newTask={newTask} />
+              task.data && <TaskView key={task.data.id} task={task.data} newTask={newTask} navigate={navigate} />
             )}
           </div>
         </DrawerContent>
@@ -444,7 +445,7 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
   );
 }
 
-function TaskView({ task, newTask }: { task: Task; newTask: (input?: TaskInput) => void }) {
+function TaskView({ task, newTask, navigate }: { task: Task; navigate:(id:string)=>void; newTask: (input?: TaskInput) => void }) {
   const [diffOpen, setDiffOpen] = useState(false);
   const reduceMotion = useReducedMotion();
   const [hasShownResult, setHasShownResult] = useState(Boolean(task.result));
@@ -535,6 +536,7 @@ function TaskView({ task, newTask }: { task: Task; newTask: (input?: TaskInput) 
             },
           )}
         </ol>
+        <TaskSession key={task.id} task={task} navigate={navigate} />
         {task.result && (
           <div className="mb-6 flex flex-wrap items-center justify-between gap-4 border-b border-border pb-3">
             <Tabs

@@ -55,7 +55,15 @@ export function createExecutor(
   >,
 ): Execute {
   return async (issue, sandbox) => {
-    const output = await sandbox.execute(INSTRUCTIONS + JSON.stringify(issue), issue.sha);
+    const output = await sandbox.execute(
+      INSTRUCTIONS +
+        JSON.stringify(issue) +
+        (issue.instruction
+          ? "\nThis PR already implements the issue. Apply this follow-up request:\n" +
+            issue.instruction
+          : ""),
+      issue.sha,
+    );
     if (!output.summary.trim()) throw new ExecutionError("OUTPUT_FAILED");
     if (Buffer.byteLength(output.patch) > MAX_PATCH_BYTES)
       throw new ExecutionError("PATCH_TOO_LARGE");

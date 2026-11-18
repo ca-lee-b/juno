@@ -1,7 +1,9 @@
+import { runLive } from "@/agent/live";
 import type { WorkerConfig } from "@/config";
 import { ExecutionError, MAX_PATCH_BYTES, type SandboxOutput } from "@/execution/contracts";
 import type { Sandbox } from "@/sandbox/contracts";
 import { patchCommand } from "@/sandbox/patch";
+import type { TaskRepository } from "@/tasks/repository";
 
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 const OUTPUT_DIRECTORY = "/tmp/agent-output";
@@ -22,6 +24,7 @@ export async function runCodex(
   prompt: string,
   sha: string,
   dispose: () => Promise<void>,
+  live?: { tasks: TaskRepository; id: string; retry?: boolean },
 ): Promise<SandboxOutput> {
   const setup = await sandbox.executeCommand(
     `mkdir -p ${OUTPUT_DIRECTORY} && npm install --prefix /tmp/codex-runtime @openai/codex@0.166.0`,
@@ -49,15 +52,23 @@ export async function runCodex(
     );
     if (installed.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", installed.exitCode);
   }
+  const history = live?.retry ? await live.tasks.messages(live.id) : [];
+  const lastUser = history.findLast((m) => m.role === "user")?.id ?? "0";
+  if (history.length)
+    prompt +=
+      "\nThis is a retry. Continue using the operator’s previous answers and corrections in this transcript:\n" +
+      JSON.stringify(history);
   await sandbox.uploadFile(Buffer.from(prompt), artifacts.prompt);
   let run: Awaited<ReturnType<typeof sandbox.executeCommand>>;
   try {
-    run = await sandbox.executeCommand(
-      `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
-      "/tmp/repository",
-      { CODEX_API_KEY: config.OPENAI_API_KEY },
-      Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
-    );
+    run = live
+      ? await runLive(sandbox, config, live.tasks, live.id, lastUser)
+      : await sandbox.executeCommand(
+          `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
+          "/tmp/repository",
+          { CODEX_API_KEY: config.OPENAI_API_KEY },
+          Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
+        );
   } catch {
     // A transport timeout does not prove the process stopped. Destroy its environment first.
     await dispose();

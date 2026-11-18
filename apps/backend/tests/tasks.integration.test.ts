@@ -42,6 +42,25 @@ describe.skipIf(!url)("Postgres task persistence", () => {
     await tasks.published(first.task.id);
     expect(await tasks.pending()).not.toContainEqual({ taskId: first.task.id });
   });
+  it("keeps follow-ups on one PR and accepts messages until Codex has consumed them", async () => {
+    const { task } = await tasks.create(input, randomUUID());
+    await client.query(
+      "INSERT INTO task_publications(task_id,branch,base_branch,status,pr_number) VALUES($1,'feature','main','published',42)",
+      [task.id],
+    );
+    const id = randomUUID();
+    const turn = await tasks.followUp(task.id, "Revise it", id);
+    expect(turn?.publication?.prNumber).toBe(42);
+    expect(await tasks.followUp(task.id, "Revise it", id)).toEqual(turn);
+    expect(await tasks.followUp(task.id, "Another", randomUUID())).toBeUndefined();
+    await tasks.start(id);
+    expect(await tasks.message(id, "user", "Use blue")).toBe(true);
+    expect(await tasks.closeMessages(id, 0)).toBe(false);
+    expect(await tasks.messages(id)).toMatchObject([{ body: "Use blue" }]);
+    expect(await tasks.closeMessages(id, 1)).toBe(true);
+    expect(await tasks.message(id, "user", "Too late")).toBe(false);
+    expect((await tasks.turns(task.id)).map((t) => t.id)).toEqual([task.id, id]);
+  });
   it("preserves completed tasks on redelivery", async () => {
     const { task } = await tasks.create(input, randomUUID());
     await tasks.start(task.id);

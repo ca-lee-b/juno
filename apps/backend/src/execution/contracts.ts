@@ -1,6 +1,9 @@
 import type { TaskInput } from "@/tasks/input";
 
 export type IssueContext = TaskInput & {
+  reviewComments?: { path: string; line: number | null; body: string }[];
+  history?: { instruction: string | null; summary: string }[];
+  instruction?: string;
   title: string;
   body: string;
   sha: string;

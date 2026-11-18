@@ -22,6 +22,8 @@ export class PublicationError extends Error {
   }
 }
 export type Task = {
+  sessionId?: string | null;
+  instruction?: string | null;
   id: string;
   input: TaskInput;
   status: TaskStatus;

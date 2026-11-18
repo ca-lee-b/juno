@@ -84,13 +84,13 @@ export async function prepareCommit(input: {
     ]);
     return {
       sha,
-      async push(branch: string) {
+      async push(branch: string, updateExisting = false) {
         await git(["check-ref-format", `refs/heads/${branch}`]);
-        // An empty expected SHA makes this create-only, even if another writer wins the race.
+        // A follow-up may only extend the exact commit used to generate its patch.
         await git([
           "push",
           "--no-verify",
-          `--force-with-lease=refs/heads/${branch}:`,
+          `--force-with-lease=refs/heads/${branch}:${updateExisting ? input.sourceSha : ""}`,
           input.remote,
           `${sha}:refs/heads/${branch}`,
         ]);

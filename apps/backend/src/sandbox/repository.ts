@@ -3,6 +3,7 @@ import type { WorkerConfig } from "@/config";
 import { ExecutionError, type RepositorySandbox } from "@/execution/contracts";
 import { repositoryBundle } from "@/github/bundle";
 import type { SandboxProvider } from "@/sandbox/contracts";
+import type { TaskRepository } from "@/tasks/repository";
 
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 type RepositoryConfig = Pick<
@@ -17,8 +18,9 @@ type RepositoryConfig = Pick<
 export function createRepositorySandboxProvider(
   config: RepositoryConfig,
   provider: SandboxProvider,
+  tasks?: TaskRepository,
 ) {
-  return async (taskId: string): Promise<RepositorySandbox> => {
+  return async (taskId: string, retry = false): Promise<RepositorySandbox> => {
     const sandbox = await provider(taskId);
     return {
       id: sandbox.id,
@@ -42,7 +44,15 @@ export function createRepositorySandboxProvider(
           issue.sha,
         );
       },
-      execute: (prompt, sha) => runCodex(sandbox, config, prompt, sha, () => sandbox.dispose()),
+      execute: (prompt, sha) =>
+        runCodex(
+          sandbox,
+          config,
+          prompt,
+          sha,
+          () => sandbox.dispose(),
+          tasks ? { tasks, id: taskId, retry } : undefined,
+        ),
       dispose: () => sandbox.dispose(),
     };
   };

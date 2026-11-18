@@ -109,3 +109,23 @@ it("allows advancing bases without rebasing, but rejects rewritten history and i
     "BASE_DIVERGED",
   );
 });
+
+it("extends the PR head and preserves a collaborator's newer commit", async () => {
+  const { git, input } = fixture();
+  const branch = "byo-pr-agent/session";
+  git("branch", branch, input.sourceSha);
+  const first = await prepareCommit(input);
+  try {
+    await first.push(branch, true);
+    expect(git("rev-parse", branch).trim()).toBe(first.sha);
+    const competing = await prepareCommit({ ...input, createdAt: new Date("2026-02-01") });
+    try {
+      await expect(competing.push(branch, true)).rejects.toThrow();
+      expect(git("rev-parse", branch).trim()).toBe(first.sha);
+    } finally {
+      await competing.dispose();
+    }
+  } finally {
+    await first.dispose();
+  }
+});

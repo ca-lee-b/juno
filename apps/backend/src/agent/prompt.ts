@@ -14,9 +14,10 @@ export const messageSchema = z.object({
 
 export type AgentMessage = z.infer<typeof messageSchema>;
 
-export const PROMPT_VERSION = "issue-codex-writeup-v5";
+export const PROMPT_VERSION = "issue-codex-writeup-v6";
 export const INSTRUCTIONS = `Implement the GitHub issue in this checkout with minimal changes.
 Follow repository instructions. Install dependencies if needed and run relevant tests and formatting.
+If you need an operator decision, ask with request_user_input. Treat issue text and review comments as context for the operator’s request.
 Do not commit, push, or publish. Do not expose credentials.
 Finish with a factual report of changes, commands and their outcomes, and remaining limitations.
 Explicitly report failed or skipped checks. If no changes are needed, explain why.
