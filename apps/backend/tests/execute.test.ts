@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExecutionError } from "@/execution/contracts";
 import { createLogger } from "@/logger";
 import { createExecutionHandler } from "@/tasks/execute";
 import type { Task } from "@/tasks/types";
@@ -123,12 +124,21 @@ describe("execution lifecycle", () => {
     async (final) => {
       const { handle, tasks, sandbox, execute } = setup();
       execute.mockRejectedValue(new Error("provider secret"));
-      await expect(handle("task-1", final)).rejects.toThrow("Task execution failed");
+      await expect(handle("task-1", final)).rejects.toThrow(
+        /^Task execution failed during run agent \(SETUP_FAILED\)$/,
+      );
       expect(tasks.fail).toHaveBeenCalledWith("task-1", final, "SETUP_FAILED");
       expect(sandbox.dispose).toHaveBeenCalledOnce();
       expect(tasks.complete).not.toHaveBeenCalled();
     },
   );
+  it("preserves the checkout failure and exit code for the queue", async () => {
+    const { handle, sandbox } = setup();
+    sandbox.clone.mockRejectedValue(new ExecutionError("SETUP_FAILED", 128));
+    await expect(handle("task-1", false)).rejects.toThrow(
+      /^Task execution failed during checkout repository \(SETUP_FAILED, exit 128\)$/,
+    );
+  });
   it("cleans up even if recording the sandbox ID fails", async () => {
     const { handle, tasks, sandbox } = setup();
     tasks.setSandbox.mockRejectedValueOnce(new Error("database unavailable"));

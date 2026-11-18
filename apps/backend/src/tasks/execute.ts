@@ -31,9 +31,11 @@ export function createExecutionHandler({
   return async (taskId: string, lastAttempt: boolean) => {
     const task = await tasks.start(taskId);
     if (!task) return; // Terminal tasks are safe to redeliver.
+    let operation = "load context";
     let sandbox: RepositorySandbox | undefined;
     try {
       if (task.sessionId && task.result && task.sourceSha && revisions) {
+        operation = "publish revision";
         await revisions.push(task, task.sourceSha, task.result.patch);
         await tasks.complete(taskId, task);
         return;
@@ -48,22 +50,36 @@ export function createExecutionHandler({
         if (task.sessionId) issue.history = (await tasks.context?.(task.sessionId)) ?? [];
       }
       await tasks.setSource(taskId, issue.sha, issue.branch);
+      operation = "create sandbox";
       sandbox = await createSandbox(taskId, task.attempts > 1);
       await tasks.setSandbox(taskId, sandbox.id);
+      operation = "checkout repository";
       await sandbox.clone(issue);
+      operation = "run agent";
       const result = await execute(issue, sandbox);
       if (head && revisions) {
         await tasks.complete(taskId, result, true);
+        operation = "publish revision";
         await revisions.push(task, issue.sha, result.result.patch);
       }
       await tasks.complete(taskId, result);
       logger.info({ taskId, model: result.model, usage: result.usage }, "execution completed");
     } catch (error) {
       const failure = error instanceof ExecutionError ? error : new ExecutionError("SETUP_FAILED");
-      logger.warn({ taskId, stage: failure.code, exitCode: failure.exitCode }, "execution failed");
+      if (
+        operation === "run agent" &&
+        error instanceof ExecutionError &&
+        error.code === "SETUP_FAILED"
+      )
+        operation = "install agent tools";
+      logger.warn(
+        { taskId, operation, stage: failure.code, exitCode: failure.exitCode },
+        "execution failed",
+      );
       await tasks.fail(taskId, lastAttempt, failure.code);
       // Do not persist provider errors: they can contain credentials or repository content.
-      throw new Error("Task execution failed");
+      const exit = failure.exitCode === undefined ? "" : `, exit ${failure.exitCode}`;
+      throw new Error(`Task execution failed during ${operation} (${failure.code}${exit})`);
     } finally {
       if (sandbox) {
         try {
