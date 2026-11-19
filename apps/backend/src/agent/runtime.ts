@@ -59,17 +59,23 @@ export async function runCodex(
       "\nInclude the operator’s messages already received for this run:\n" +
       JSON.stringify(history);
   await sandbox.uploadFile(Buffer.from(prompt), artifacts.prompt);
+  let streamed: { summary: string; events: string } | undefined;
   let run: Awaited<ReturnType<typeof sandbox.executeCommand>>;
   try {
-    run = live
-      ? await runLive(sandbox, config, live.tasks, live.id, lastUser)
-      : await sandbox.executeCommand(
-          `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
-          "/tmp/repository",
-          { CODEX_API_KEY: config.OPENAI_API_KEY },
-          Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
-        );
-  } catch {
+    if (live && process.env.ENGINE_ENDPOINT) {
+      streamed = await runLive(sandbox, config, live.tasks, live.id, lastUser, prompt);
+      run = { exitCode: 0, result: "" };
+    } else {
+      if (live) await live.tasks.liveLost(live.id);
+      run = await sandbox.executeCommand(
+        `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
+        "/tmp/repository",
+        { CODEX_API_KEY: config.OPENAI_API_KEY },
+        Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
+      );
+    }
+  } catch (error) {
+    if (error instanceof ExecutionError) throw error;
     // A transport timeout does not prove the process stopped. Destroy its environment first.
     await dispose();
     throw new ExecutionError("EXECUTION_TIMEOUT");
@@ -93,17 +99,15 @@ export async function runCodex(
     const size = Number(collected.result.trim());
     if (!Number.isFinite(size)) throw new ExecutionError("OUTPUT_FAILED");
     if (size > MAX_PATCH_BYTES) throw new ExecutionError("PATCH_TOO_LARGE");
-    const [summary, patch, events] = await Promise.all(
-      [artifacts.summary, artifacts.patch, artifacts.events].map((file) =>
-        sandbox.downloadFile(file),
-      ),
-    );
-    if (!summary || !patch || !events) throw new ExecutionError("OUTPUT_FAILED");
-    return {
-      summary: summary.toString(),
-      patch: patch.toString(),
-      events: events.toString(),
-    };
+    const patch = await sandbox.downloadFile(artifacts.patch);
+    if (!patch) throw new ExecutionError("OUTPUT_FAILED");
+    if (streamed) return { ...streamed, patch: patch.toString() };
+    const [summary, events] = await Promise.all([
+      sandbox.downloadFile(artifacts.summary),
+      sandbox.downloadFile(artifacts.events),
+    ]);
+    if (!summary || !events) throw new ExecutionError("OUTPUT_FAILED");
+    return { summary: summary.toString(), events: events.toString(), patch: patch.toString() };
   } catch (error) {
     throw error instanceof ExecutionError ? error : new ExecutionError("OUTPUT_FAILED");
   }

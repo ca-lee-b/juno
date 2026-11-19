@@ -4,6 +4,7 @@ import type { IncomingMessage } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket, WebSocketServer } from "ws";
 import type { WorkerConfig } from "@/config";
+import { ExecutionError } from "@/execution/contracts";
 import type { Sandbox } from "@/sandbox/contracts";
 import type { TaskRepository } from "@/tasks/repository";
 
@@ -18,7 +19,7 @@ export function listenForEngines(port: number) {
   server.on("connection", (socket, req) => {
     const key = req.headers.authorization ?? "";
     const accept = waiting.get(key);
-    waiting.delete(key);
+
     if (accept) accept(socket);
     else socket.terminate();
   });
@@ -33,7 +34,14 @@ type Question = {
 type Event = {
   id?: number;
   method: string;
-  params: { turn?: { id: string }; item?: { type: string; text: string }; questions?: Question[] };
+  params: {
+    turn?: { id: string; status: string };
+    tokenUsage?: {
+      total: { inputTokens: number; outputTokens: number; cachedInputTokens: number };
+    };
+    item?: { type: string; text: string };
+    questions?: Question[];
+  };
 };
 
 export async function runLive(
@@ -45,6 +53,7 @@ export async function runLive(
   tasks: TaskRepository,
   id: string,
   lastUser: string,
+  prompt: string,
 ) {
   const dir = "/tmp/agent-output";
   await sandbox.uploadFile(
@@ -81,7 +90,15 @@ export async function runLive(
       socket.send(JSON.stringify({ ...data, id }));
     });
   let lost = false;
+  let started = false,
+    ready = false,
+    failed = false,
+    sequence = 0;
+  let summary = "",
+    events = "";
   const disconnected = () => {
+    ready = false;
+    socket = undefined;
     ack?.resolve("disconnected");
     ack = undefined;
     if (stopping || lost) return;
@@ -90,19 +107,53 @@ export async function runLive(
     void stored.catch(() => {});
   };
   waiting.set(key, (ws) => {
+    if (socket) {
+      ws.terminate();
+      return;
+    }
     socket = ws;
+    ws.send(JSON.stringify({ id: "stream", op: "replay", from: sequence + 1 }));
     ws.on("error", () => ws.terminate());
     ws.on("close", disconnected);
     ws.on("message", (raw) => {
       try {
-        const frame = JSON.parse(raw.toString()) as { id?: string; error?: string; event?: Event };
+        const frame = JSON.parse(raw.toString()) as {
+          seq?: number;
+          id?: string;
+          error?: string;
+          event?: Event;
+        };
+        if (frame.id === "stream") {
+          if (frame.error) {
+            failed = true;
+            return;
+          }
+          ready = true;
+          return;
+        }
         if (ack && frame.id === ack.id) {
           ack.resolve(frame.error);
           ack = undefined;
           return;
         }
         const e = frame.event;
-        if (!e) return;
+        if (!ready || !e || frame.seq === undefined || frame.seq <= sequence) return;
+        if (frame.seq !== sequence + 1) {
+          ws.terminate();
+          return;
+        }
+        sequence = frame.seq;
+        if (e.method === "thread/tokenUsage/updated" && e.params.tokenUsage) {
+          const u = e.params.tokenUsage.total;
+          events = JSON.stringify({
+            type: "turn.completed",
+            usage: {
+              input_tokens: u.inputTokens,
+              cached_input_tokens: u.cachedInputTokens,
+              output_tokens: u.outputTokens,
+            },
+          });
+        }
         if (e.method === "turn/started") {
           turn = e.params.turn?.id;
           idle = false;
@@ -110,9 +161,12 @@ export async function runLive(
         if (e.method === "turn/completed") {
           turn = undefined;
           idle = true;
+          failed = e.params.turn?.status !== "completed";
         }
-        if (e.method === "item/completed" && e.params.item?.type === "agentMessage")
-          log(e.params.item.text);
+        if (e.method === "item/completed" && e.params.item?.type === "agentMessage") {
+          summary = e.params.item.text;
+          log(summary);
+        }
         if (
           e.method === "item/tool/requestUserInput" &&
           e.id !== undefined &&
@@ -127,16 +181,25 @@ export async function runLive(
     });
   });
   const timeout = Math.ceil(config.AGENT_TIMEOUT_MS / 1000);
+  const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
+  const settings = [
+    `model = ${JSON.stringify(config.OPENAI_CODEX_MODEL)}`,
+    `model_reasoning_effort = ${JSON.stringify(config.OPENAI_CODEX_MODEL_EFFORT)}`,
+    'approval_policy = "never"',
+    'sandbox_mode = "danger-full-access"',
+    "[features]",
+    "default_mode_request_user_input = true",
+  ].join("\n");
+  try {
+    await sandbox.uploadFile(Buffer.from(settings), `${dir}/codex.toml`);
+  } catch (error) {
+    waiting.delete(key);
+    throw error;
+  }
   const command = sandbox.executeCommand(
-    `chmod 700 ${dir}/engine && touch ${dir}/events.jsonl && timeout --kill-after=10s ${timeout}s ${dir}/engine -dir /tmp/repository -codex /tmp/codex-runtime/node_modules/.bin/codex -output-dir ${dir}`,
+    `set -eu; chmod 700 ${dir}/engine; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/engine -dir /tmp/repository -codex ${codex}`,
     "/tmp/repository",
-    {
-      ENGINE_ENDPOINT: endpoint,
-      ENGINE_TOKEN: token,
-      CODEX_API_KEY: config.OPENAI_API_KEY,
-      JUNO_MODEL: config.OPENAI_CODEX_MODEL,
-      JUNO_EFFORT: config.OPENAI_CODEX_MODEL_EFFORT,
-    },
+    { ENGINE_ENDPOINT: endpoint, ENGINE_TOKEN: token, CODEX_API_KEY: config.OPENAI_API_KEY },
     timeout + 30,
   );
   let finished = false;
@@ -145,19 +208,20 @@ export async function runLive(
     ack?.resolve("finished");
   });
   void completion.catch(() => {});
-  const deadline = setTimeout(() => {
-    if (!socket) {
-      waiting.delete(key);
-      disconnected();
-    }
-  }, 15000);
   try {
-    if (!endpoint) disconnected();
-    while (!finished && !lost && !stopping) {
-      if (socket && (turn || idle)) {
+    while (!finished && !failed && !stopping) {
+      if (ready && !started) {
+        started = true;
+        const error = await request({ op: "send", text: prompt });
+        if (error && error !== "disconnected") throw new ExecutionError("EXECUTION_FAILED");
+      }
+      if (ready && (turn || idle)) {
         const messages = (await tasks.messages(id)).filter((m) => m.role === "user");
         const next = messages.find((m) => BigInt(m.id) > BigInt(lastUser));
-        if (next) {
+        if (lost && question) {
+          await request({ op: "respond", requestId: question.requestId, result: { answers: {} } });
+          question = undefined;
+        } else if (next && !lost) {
           let error: string | undefined;
           if (question) {
             const q = question.remaining.shift();
@@ -179,19 +243,24 @@ export async function runLive(
             );
           }
           if (!error) lastUser = next.id;
-          else if (error !== "turn is not active" && error !== "busy") socket.terminate();
-        } else if (idle && (await tasks.closeMessages(id, messages.length))) {
-          stopping = true;
-          if (await request({ op: "prepare_shutdown" })) socket.terminate();
+          else if (error !== "turn is not active" && error !== "busy") socket?.terminate();
+        } else if (idle && (lost || (await tasks.closeMessages(id, messages.length)))) {
+          stopping = !(await request({ op: "prepare_shutdown" }));
         }
       }
       if (!stopping) await Promise.race([completion, delay(350)]);
     }
-    const result = await completion;
+    if (finished) {
+      const r = await completion;
+      throw new ExecutionError(
+        r.exitCode === 124 || r.exitCode === 137 ? "EXECUTION_TIMEOUT" : "EXECUTION_FAILED",
+        r.exitCode,
+      );
+    }
+    if (failed || !summary.trim()) throw new ExecutionError("OUTPUT_FAILED");
     await stored;
-    return result;
+    return { summary, events };
   } finally {
-    clearTimeout(deadline);
     waiting.delete(key);
     stopping = true;
     socket?.terminate();
