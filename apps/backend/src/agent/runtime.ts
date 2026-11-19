@@ -1,30 +1,32 @@
-import { runLive } from "@/agent/live";
+import { runLive, type SessionTasks } from "@/agent/live";
 import type { WorkerConfig } from "@/config";
 import { ExecutionError, MAX_PATCH_BYTES, type SandboxOutput } from "@/execution/contracts";
 import type { Sandbox } from "@/sandbox/contracts";
 import { patchCommand } from "@/sandbox/patch";
-import type { TaskRepository } from "@/tasks/repository";
 
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 const OUTPUT_DIRECTORY = "/tmp/agent-output";
 const artifacts = {
-  prompt: `${OUTPUT_DIRECTORY}/prompt.txt`,
-  summary: `${OUTPUT_DIRECTORY}/summary.txt`,
   patch: `${OUTPUT_DIRECTORY}/changes.patch`,
-  events: `${OUTPUT_DIRECTORY}/events.jsonl`,
-  stderr: `${OUTPUT_DIRECTORY}/stderr.txt`,
   script: `${OUTPUT_DIRECTORY}/patch.sh`,
 };
 export async function runCodex(
   sandbox: Pick<Sandbox, "executeCommand" | "uploadFile" | "downloadFile">,
   config: Pick<
     WorkerConfig,
-    "OPENAI_CODEX_MODEL" | "OPENAI_CODEX_MODEL_EFFORT" | "OPENAI_API_KEY" | "AGENT_TIMEOUT_MS"
+    | "ENGINE_ENDPOINT"
+    | "OPENAI_CODEX_MODEL"
+    | "OPENAI_CODEX_MODEL_EFFORT"
+    | "OPENAI_API_KEY"
+    | "AGENT_TIMEOUT_MS"
   >,
   prompt: string,
   sha: string,
   dispose: () => Promise<void>,
-  live?: { tasks: TaskRepository; id: string },
+  live: {
+    tasks: SessionTasks;
+    id: string;
+  },
 ): Promise<SandboxOutput> {
   const setup = await sandbox.executeCommand(
     `mkdir -p ${OUTPUT_DIRECTORY} && npm install --prefix /tmp/codex-runtime @openai/codex@0.166.0`,
@@ -52,40 +54,18 @@ export async function runCodex(
     );
     if (installed.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", installed.exitCode);
   }
-  const history = live ? await live.tasks.messages(live.id) : [];
+  const history = await live.tasks.messages(live.id);
   const lastUser = history.findLast((m) => m.role === "user")?.id ?? "0";
   if (history.length)
     prompt +=
       "\nInclude the operator’s messages already received for this run:\n" +
       JSON.stringify(history);
-  await sandbox.uploadFile(Buffer.from(prompt), artifacts.prompt);
-  let streamed: { summary: string; events: string } | undefined;
-  let run: Awaited<ReturnType<typeof sandbox.executeCommand>>;
+  let streamed: Omit<SandboxOutput, "patch">;
   try {
-    if (live && process.env.ENGINE_ENDPOINT) {
-      streamed = await runLive(sandbox, config, live.tasks, live.id, lastUser, prompt);
-      run = { exitCode: 0, result: "" };
-    } else {
-      if (live) await live.tasks.liveLost(live.id);
-      run = await sandbox.executeCommand(
-        `timeout --kill-after=10s ${Math.ceil(config.AGENT_TIMEOUT_MS / 1000)}s /tmp/codex-runtime/node_modules/.bin/codex exec --dangerously-bypass-approvals-and-sandbox --ephemeral --json --model ${quote(config.OPENAI_CODEX_MODEL)} -c ${quote(`model_reasoning_effort="${config.OPENAI_CODEX_MODEL_EFFORT}"`)} --output-last-message ${artifacts.summary} - < ${artifacts.prompt} > ${artifacts.events} 2> ${artifacts.stderr}`,
-        "/tmp/repository",
-        { CODEX_API_KEY: config.OPENAI_API_KEY },
-        Math.ceil(config.AGENT_TIMEOUT_MS / 1000) + 30,
-      );
-    }
+    streamed = await runLive(sandbox, config, live.tasks, live.id, lastUser, prompt);
   } catch (error) {
-    if (error instanceof ExecutionError) throw error;
-    // A transport timeout does not prove the process stopped. Destroy its environment first.
-    await dispose();
-    throw new ExecutionError("EXECUTION_TIMEOUT");
-  }
-  if (run.exitCode !== 0) {
-    if (run.exitCode === 124 || run.exitCode === 137) {
-      await dispose();
-      throw new ExecutionError("EXECUTION_TIMEOUT", run.exitCode);
-    }
-    throw new ExecutionError("EXECUTION_FAILED", run.exitCode);
+    if (!(error instanceof ExecutionError) || error.code === "EXECUTION_TIMEOUT") await dispose();
+    throw error instanceof ExecutionError ? error : new ExecutionError("EXECUTION_TIMEOUT");
   }
   try {
     await sandbox.uploadFile(Buffer.from(patchCommand(sha, artifacts.patch)), artifacts.script);
@@ -101,13 +81,7 @@ export async function runCodex(
     if (size > MAX_PATCH_BYTES) throw new ExecutionError("PATCH_TOO_LARGE");
     const patch = await sandbox.downloadFile(artifacts.patch);
     if (!patch) throw new ExecutionError("OUTPUT_FAILED");
-    if (streamed) return { ...streamed, patch: patch.toString() };
-    const [summary, events] = await Promise.all([
-      sandbox.downloadFile(artifacts.summary),
-      sandbox.downloadFile(artifacts.events),
-    ]);
-    if (!summary || !events) throw new ExecutionError("OUTPUT_FAILED");
-    return { summary: summary.toString(), events: events.toString(), patch: patch.toString() };
+    return { ...streamed, patch: patch.toString() };
   } catch (error) {
     throw error instanceof ExecutionError ? error : new ExecutionError("OUTPUT_FAILED");
   }

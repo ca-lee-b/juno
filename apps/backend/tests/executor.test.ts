@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createExecutor, parseUsage } from "@/agent/executor";
+import { createExecutor } from "@/agent/executor";
 import { readWorkerConfig } from "@/config";
 import type { IssueContext } from "@/execution/contracts";
 import { MAX_PATCH_BYTES } from "@/execution/contracts";
@@ -7,6 +7,7 @@ import { MAX_PATCH_BYTES } from "@/execution/contracts";
 const config = readWorkerConfig({
   DATABASE_URL: "postgres://localhost/db",
   REDIS_URL: "redis://localhost",
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "secret",
   DAYTONA_API_KEY: "secret",
   OPENAI_CODEX_MODEL: "test",
@@ -49,12 +50,6 @@ const issue: IssueContext = {
   branch: "main",
 };
 describe("Codex output", () => {
-  it("reads usage and rejects malformed events", () => {
-    expect(
-      parseUsage('{"type":"turn.completed","usage":{"input_tokens":3,"output_tokens":2}}'),
-    ).toEqual({ inputTokens: 3, outputTokens: 2 });
-    expect(() => parseUsage("bad json")).toThrow("OUTPUT_FAILED");
-  });
   it.each(["", "patch"])("captures output, including empty patches (%s)", async (patch) => {
     const sandbox = {
       id: "s",
@@ -67,7 +62,7 @@ describe("Codex output", () => {
           prDescription: "Reviewer description",
         }),
         patch,
-        events: "",
+        usage: { inputTokens: 8, cachedInputTokens: 2, outputTokens: 3 },
       }),
     };
     const result = await createExecutor(config)(issue, sandbox);
@@ -83,6 +78,7 @@ describe("Codex output", () => {
         patch,
       }),
     });
+    expect(result.usage).toEqual({ inputTokens: 8, cachedInputTokens: 2, outputTokens: 3 });
     expect(result.model).toBe("test");
     expect(result.result).toEqual({
       summary: expect.stringContaining("Done"),
@@ -103,25 +99,10 @@ describe("Codex output", () => {
       id: "s",
       clone: vi.fn(),
       dispose: vi.fn(),
-      execute: vi.fn().mockResolvedValue({ summary, patch, events: "" }),
+      execute: vi.fn().mockResolvedValue({ summary, patch, usage: null }),
     };
     await expect(createExecutor(config)(issue, sandbox)).rejects.toThrow(code);
   });
-});
-
-it("accumulates multiple turns and rejects invalid cache counts", () => {
-  const event = JSON.stringify({
-    type: "turn.completed",
-    usage: { input_tokens: 10, cached_input_tokens: 2, output_tokens: 3 },
-  });
-  expect(parseUsage([event, event].join("\n"))).toEqual({
-    inputTokens: 20,
-    cachedInputTokens: 4,
-    outputTokens: 6,
-  });
-  expect(() =>
-    parseUsage(event.replace('"cached_input_tokens":2', '"cached_input_tokens":20')),
-  ).toThrow();
 });
 
 it.each(["not conventional", "fix: first\nsecond"])(
@@ -154,7 +135,7 @@ it.each(["not conventional", "fix: first\nsecond"])(
           prDescription: "Changes",
         }),
         patch: "",
-        events: "",
+        usage: null,
       }),
     };
     await expect(createExecutor(config)(issue, sandbox)).rejects.toThrow("OUTPUT_FAILED");

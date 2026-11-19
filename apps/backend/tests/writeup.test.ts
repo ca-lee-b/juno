@@ -16,7 +16,7 @@ const issue = {
   sha: "a".repeat(40),
   branch: "main",
 };
-const output = { summary: "Coding report", patch: "diff", events: "" };
+const output = { summary: "Coding report", patch: "diff", usage: null };
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();

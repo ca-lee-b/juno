@@ -1,9 +1,18 @@
 import { expect, it, vi } from "vitest";
+import { runLive } from "@/agent/live";
 import type { IssueContext } from "@/execution/contracts";
 import type { Sandbox, SandboxProvider } from "@/sandbox/contracts";
 import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
+vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
+const tasks = {
+  messages: vi.fn().mockResolvedValue([]),
+  reply: vi.fn(),
+  liveLost: vi.fn(),
+  closeMessages: vi.fn(),
+};
 const config = {
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "openai-secret",
   OPENAI_CODEX_MODEL: "test",
   OPENAI_CODEX_MODEL_EFFORT: "medium" as const,
@@ -19,6 +28,7 @@ const issue: IssueContext = {
   branch: "main",
 };
 function setup() {
+  vi.mocked(runLive).mockResolvedValue({ summary: "done", usage: null });
   const environment = {
     id: "other-provider-id",
     clone: vi.fn<Sandbox["clone"]>().mockResolvedValue(undefined),
@@ -32,7 +42,11 @@ function setup() {
     dispose: vi.fn<Sandbox["dispose"]>().mockResolvedValue(undefined),
   } satisfies Sandbox;
   const provider = vi.fn<SandboxProvider>().mockResolvedValue(environment);
-  return { environment, provider, create: createRepositorySandboxProvider(config, provider) };
+  return {
+    environment,
+    provider,
+    create: createRepositorySandboxProvider(config, provider, tasks),
+  };
 }
 
 it("runs repository setup, Codex, artifact collection and cleanup with an independent provider", async () => {
@@ -49,24 +63,16 @@ it("runs repository setup, Codex, artifact collection and cleanup with an indepe
   expect(await sandbox.execute("fix issue", issue.sha)).toEqual({
     summary: "done",
     patch: "",
-    events: "",
+    usage: null,
   });
-  expect(environment.executeCommand).toHaveBeenCalledWith(
-    expect.stringContaining("codex exec"),
-    "/tmp/repository",
-    { CODEX_API_KEY: "openai-secret" },
-    31,
-  );
+  expect(runLive).toHaveBeenCalledOnce();
   await sandbox.dispose();
   expect(environment.dispose).toHaveBeenCalledOnce();
 });
 
 it("uses the injected provider to destroy an environment after a transport failure", async () => {
   const { environment, create } = setup();
-  environment.executeCommand.mockImplementation(async (command) => {
-    if (command.includes("codex exec")) throw new Error("transport");
-    return { exitCode: 0, result: "" };
-  });
+  vi.mocked(runLive).mockRejectedValueOnce(new Error("transport"));
   const sandbox = await create("task-id");
   await expect(sandbox.execute("fix issue", issue.sha)).rejects.toThrow("EXECUTION_TIMEOUT");
   expect(environment.dispose).toHaveBeenCalledOnce();

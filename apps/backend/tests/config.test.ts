@@ -4,6 +4,7 @@ import { readWorkerConfig } from "@/config";
 const env = {
   DATABASE_URL: "postgres://localhost/db",
   REDIS_URL: "redis://localhost",
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "test",
   DAYTONA_API_KEY: "test",
 };
@@ -50,4 +51,8 @@ it("requires a nonblank E2B key only when E2B is selected", () => {
   for (const key of [undefined, "", "   "]) {
     expect(() => readWorkerConfig({ ...e2bEnv, E2B_API_KEY: key })).toThrow();
   }
+});
+
+it("requires an engine endpoint at startup", () => {
+  expect(() => readWorkerConfig({ ...env, ENGINE_ENDPOINT: undefined })).toThrow(/ENGINE_ENDPOINT/);
 });

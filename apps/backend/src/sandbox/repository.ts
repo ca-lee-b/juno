@@ -1,13 +1,14 @@
+import type { SessionTasks } from "@/agent/live";
 import { runCodex } from "@/agent/runtime";
 import type { WorkerConfig } from "@/config";
 import { ExecutionError, type RepositorySandbox } from "@/execution/contracts";
 import { repositoryBundle } from "@/github/bundle";
 import type { SandboxProvider } from "@/sandbox/contracts";
-import type { TaskRepository } from "@/tasks/repository";
 
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 type RepositoryConfig = Pick<
   WorkerConfig,
+  | "ENGINE_ENDPOINT"
   | "GITHUB_TOKEN"
   | "OPENAI_API_KEY"
   | "OPENAI_CODEX_MODEL"
@@ -18,7 +19,7 @@ type RepositoryConfig = Pick<
 export function createRepositorySandboxProvider(
   config: RepositoryConfig,
   provider: SandboxProvider,
-  tasks?: TaskRepository,
+  tasks: SessionTasks,
 ) {
   return async (taskId: string): Promise<RepositorySandbox> => {
     const sandbox = await provider(taskId);
@@ -55,14 +56,7 @@ export function createRepositorySandboxProvider(
         }
       },
       execute: (prompt, sha) =>
-        runCodex(
-          sandbox,
-          config,
-          prompt,
-          sha,
-          () => sandbox.dispose(),
-          tasks ? { tasks, id: taskId } : undefined,
-        ),
+        runCodex(sandbox, config, prompt, sha, () => sandbox.dispose(), { tasks, id: taskId }),
       dispose: () => sandbox.dispose(),
     };
   };

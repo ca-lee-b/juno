@@ -3,10 +3,21 @@ import { readFile } from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import { WebSocket, WebSocketServer } from "ws";
+import { z } from "zod";
 import type { WorkerConfig } from "@/config";
 import { ExecutionError } from "@/execution/contracts";
 import type { Sandbox } from "@/sandbox/contracts";
 import type { TaskRepository } from "@/tasks/repository";
+
+export type SessionTasks = Pick<
+  TaskRepository,
+  "messages" | "reply" | "liveLost" | "closeMessages"
+>;
+
+const tokens = z.number().int().nonnegative();
+const usageSchema = z
+  .object({ inputTokens: tokens, outputTokens: tokens, cachedInputTokens: tokens })
+  .refine((u) => u.cachedInputTokens <= u.inputTokens);
 
 const waiting = new Map<string, (socket: WebSocket) => void>();
 export function listenForEngines(port: number) {
@@ -48,9 +59,13 @@ export async function runLive(
   sandbox: Pick<Sandbox, "executeCommand" | "uploadFile">,
   config: Pick<
     WorkerConfig,
-    "OPENAI_API_KEY" | "OPENAI_CODEX_MODEL" | "OPENAI_CODEX_MODEL_EFFORT" | "AGENT_TIMEOUT_MS"
+    | "ENGINE_ENDPOINT"
+    | "OPENAI_API_KEY"
+    | "OPENAI_CODEX_MODEL"
+    | "OPENAI_CODEX_MODEL_EFFORT"
+    | "AGENT_TIMEOUT_MS"
   >,
-  tasks: TaskRepository,
+  tasks: SessionTasks,
   id: string,
   lastUser: string,
   prompt: string,
@@ -60,7 +75,6 @@ export async function runLive(
     await readFile(new URL("../../bin/engine", import.meta.url)),
     `${dir}/engine`,
   );
-  const endpoint = process.env.ENGINE_ENDPOINT ?? "";
   const token = randomBytes(32).toString("hex");
   const key = `Bearer ${token}`;
   let socket: WebSocket | undefined;
@@ -94,8 +108,8 @@ export async function runLive(
     ready = false,
     failed = false,
     sequence = 0;
-  let summary = "",
-    events = "";
+  let summary = "";
+  let usage: z.infer<typeof usageSchema> | null = null;
   const disconnected = () => {
     ready = false;
     socket = undefined;
@@ -144,15 +158,9 @@ export async function runLive(
         }
         sequence = frame.seq;
         if (e.method === "thread/tokenUsage/updated" && e.params.tokenUsage) {
-          const u = e.params.tokenUsage.total;
-          events = JSON.stringify({
-            type: "turn.completed",
-            usage: {
-              input_tokens: u.inputTokens,
-              cached_input_tokens: u.cachedInputTokens,
-              output_tokens: u.outputTokens,
-            },
-          });
+          const parsed = usageSchema.safeParse(e.params.tokenUsage.total);
+          if (parsed.success) usage = parsed.data;
+          else failed = true;
         }
         if (e.method === "turn/started") {
           turn = e.params.turn?.id;
@@ -161,7 +169,7 @@ export async function runLive(
         if (e.method === "turn/completed") {
           turn = undefined;
           idle = true;
-          failed = e.params.turn?.status !== "completed";
+          failed ||= e.params.turn?.status !== "completed";
         }
         if (e.method === "item/completed" && e.params.item?.type === "agentMessage") {
           summary = e.params.item.text;
@@ -199,7 +207,11 @@ export async function runLive(
   const command = sandbox.executeCommand(
     `set -eu; chmod 700 ${dir}/engine; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/engine -dir /tmp/repository -codex ${codex}`,
     "/tmp/repository",
-    { ENGINE_ENDPOINT: endpoint, ENGINE_TOKEN: token, CODEX_API_KEY: config.OPENAI_API_KEY },
+    {
+      ENGINE_ENDPOINT: config.ENGINE_ENDPOINT,
+      ENGINE_TOKEN: token,
+      CODEX_API_KEY: config.OPENAI_API_KEY,
+    },
     timeout + 30,
   );
   let finished = false;
@@ -259,7 +271,7 @@ export async function runLive(
     }
     if (failed || !summary.trim()) throw new ExecutionError("OUTPUT_FAILED");
     await stored;
-    return { summary, events };
+    return { summary, usage };
   } finally {
     waiting.delete(key);
     stopping = true;

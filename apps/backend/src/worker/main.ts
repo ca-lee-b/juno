@@ -15,7 +15,7 @@ import { TaskRepository } from "@/tasks/repository";
 import { createRevisionPublisher } from "@/tasks/revision";
 
 const config = readWorkerConfig();
-const engineServer = config.ENGINE_ENDPOINT ? listenForEngines(config.ENGINE_PORT) : undefined;
+const engineServer = listenForEngines(config.ENGINE_PORT);
 const logger = createLogger(config.LOG_LEVEL);
 const db = createDatabase(config.DATABASE_URL);
 db.on("error", () => logger.error("database connection failed"));
@@ -72,7 +72,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       ).unref();
       await dispatcher;
       await worker.close();
-      engineServer?.close();
+      engineServer.close();
       await queue.close();
       await Promise.all([producer.quit(), consumer.quit(), db.end()]);
       clearTimeout(deadline);

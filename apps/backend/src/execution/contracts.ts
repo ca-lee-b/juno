@@ -33,7 +33,7 @@ export type ExecutionResult = {
   promptVersion: string;
   usage: TokenUsage | null;
 };
-export type SandboxOutput = { summary: string; patch: string; events: string };
+export type SandboxOutput = { summary: string; patch: string; usage: TokenUsage | null };
 export interface RepositorySandbox {
   id: string;
   clone(issue: IssueContext, patch?: string): Promise<void>;

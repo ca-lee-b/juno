@@ -1,13 +1,21 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { runLive } from "@/agent/live";
 import { readWorkerConfig } from "@/config";
 import { createDaytonaProvider } from "@/sandbox/daytona";
 
 import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
+vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
+const tasks = {
+  messages: vi.fn().mockResolvedValue([]),
+  reply: vi.fn(),
+  liveLost: vi.fn(),
+  closeMessages: vi.fn(),
+};
 const createSandboxProvider = (
   config: Parameters<typeof createRepositorySandboxProvider>[0] &
     Parameters<typeof createDaytonaProvider>[0],
-) => createRepositorySandboxProvider(config, createDaytonaProvider(config));
+) => createRepositorySandboxProvider(config, createDaytonaProvider(config), tasks);
 
 const mocks = vi.hoisted(() => ({
   bundle: vi.fn(),
@@ -27,12 +35,14 @@ vi.mock("@daytona/sdk", () => ({
 const config = readWorkerConfig({
   DATABASE_URL: "postgres://localhost/db",
   REDIS_URL: "redis://localhost",
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "secret",
   DAYTONA_API_KEY: "private",
   OPENAI_CODEX_MODEL: "test",
 });
 beforeEach(() => {
-  vi.resetAllMocks();
+  vi.clearAllMocks();
+  vi.mocked(runLive).mockResolvedValue({ summary: "done", usage: null });
   mocks.create.mockResolvedValue({
     id: "sandbox",
     process: { executeCommand: mocks.command },
@@ -48,30 +58,10 @@ it("executes once and captures artifacts without placing keys in command text", 
   expect(await sandbox.execute("issue", "a".repeat(40))).toEqual({
     summary: "done",
     patch: "",
-    events: "",
+    usage: null,
   });
-  const args = mocks.command.mock.calls.find(([command]) => command.includes("codex exec"));
-  expect(args).toBeDefined();
-  expect(args?.[0]).not.toContain("secret");
-  expect(args?.[0]).toContain("--model 'test'");
-  expect(args?.[0]).toContain(`-c 'model_reasoning_effort="medium"'`);
-  expect(args?.[2]).toEqual({ CODEX_API_KEY: "secret" });
+  expect(runLive).toHaveBeenCalledOnce();
 });
-it.each([1, 124, 137])(
-  "classifies CLI exit %s and destroys timed-out environments",
-  async (exitCode) => {
-    mocks.command.mockImplementation(async (command: string) => ({
-      exitCode: command.includes("codex exec") ? exitCode : 0,
-      result: "0",
-    }));
-    const sandbox = await createSandboxProvider(config)("task");
-    await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
-      code: exitCode === 1 ? "EXECUTION_FAILED" : "EXECUTION_TIMEOUT",
-      exitCode,
-    });
-    expect(mocks.delete).toHaveBeenCalledTimes(exitCode === 1 ? 0 : 1);
-  },
-);
 it("installs only the two built-in skills before starting Codex", async () => {
   const sandbox = await createSandboxProvider(config)("task");
   await sandbox.execute("issue", "a".repeat(40));
@@ -86,7 +76,7 @@ it("installs only the two built-in skills before starting Codex", async () => {
     expect(call[1]).toBe("/tmp");
     expect(call[2]).toEqual({ DISABLE_TELEMETRY: "1" });
   }
-  expect(commands[3]?.[0]).toContain("codex exec");
+  expect(runLive).toHaveBeenCalledOnce();
 });
 it.each([1, 2])("does not start Codex when built-in skill %s fails", async (index) => {
   for (let i = 0; i < index; i++) {
@@ -102,10 +92,7 @@ it.each([1, 2])("does not start Codex when built-in skill %s fails", async (inde
   expect(mocks.upload).not.toHaveBeenCalled();
 });
 it("destroys the sandbox before surfacing a transport timeout", async () => {
-  mocks.command.mockImplementation(async (command: string) => {
-    if (command.includes("codex exec")) throw new Error("secret headers");
-    return { exitCode: 0, result: "0" };
-  });
+  vi.mocked(runLive).mockRejectedValueOnce(new Error("transport"));
   let finishDeletion!: () => void;
   mocks.delete.mockImplementation(
     () =>
@@ -174,7 +161,7 @@ it("rejects oversized patches before downloading artifacts", async () => {
 
 it("rejects missing output artifacts", async () => {
   mocks.download.mockImplementation(async (path: string) =>
-    path.endsWith("summary.txt") ? undefined : Buffer.from("output"),
+    path.endsWith("changes.patch") ? undefined : Buffer.from("output"),
   );
   const sandbox = await createSandboxProvider(config)("task");
   await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");

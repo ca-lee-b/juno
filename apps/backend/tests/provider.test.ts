@@ -11,6 +11,7 @@ it.each(["daytona", "freestyle", "e2b"] as const)("selects only %s", (provider) 
   const config = readWorkerConfig({
     DATABASE_URL: "postgres://localhost/db",
     REDIS_URL: "redis://localhost",
+    ENGINE_ENDPOINT: "wss://worker.example",
     OPENAI_API_KEY: "test",
     SANDBOX_PROVIDER: provider,
     DAYTONA_API_KEY: "daytona",
