@@ -16,6 +16,23 @@ ENGINE_ENDPOINT=wss://example.com/sandbox/123 ./bin/engine -dir /workspace
 
 Use a distinct endpoint path or credential to identify each sandbox. Set optional `ENGINE_TOKEN` to authenticate the WebSocket upgrade with a bearer token. Flags include `-endpoint`, `-dir` and `-codex` (defaults to the executable on PATH). The child uses its own Codex configuration and credentials.
 
+## Manual test endpoint
+
+Run the included endpoint in a terminal on your laptop:
+
+```sh
+cd engine
+go run ./cmd/test-endpoint
+```
+
+It listens on port 8787 and prints each event. In another terminal, run the engine locally or in a sandbox, pointing it at `ws://YOUR_REACHABLE_HOST:8787`. For Daytona, `localhost` means the sandbox itself, so expose your laptop's port through a secure tunnel and use the tunnel's `wss://` URL. Type JSON commands into the endpoint terminal, for example:
+
+```json
+{"id":"1","op":"send","text":"List the files in this workspace"}
+```
+
+The endpoint is for manual testing only. It accepts connections without authentication and should only be exposed temporarily through a trusted tunnel.
+
 ## WebSocket protocol
 
 The engine dials the endpoint. Each text frame contains one JSON object. Commands carry a caller-chosen string ID. Replies contain that ID and either `result` or an `error` string. IDs correlate replies. Retrying a command can execute it twice.

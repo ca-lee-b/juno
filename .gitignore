@@ -13,3 +13,7 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .vercel/
+
+/engine/bin/
+.bin/
+*.bin
