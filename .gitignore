@@ -16,3 +16,5 @@ next-env.d.ts
 
 .bin/
 *.bin
+
+/apps/backend/bin/

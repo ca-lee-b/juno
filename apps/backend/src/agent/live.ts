@@ -72,8 +72,8 @@ export async function runLive(
 ) {
   const dir = "/tmp/agent-output";
   await sandbox.uploadFile(
-    await readFile(new URL("../../bin/engine", import.meta.url)),
-    `${dir}/engine`,
+    await readFile(new URL("../../bin/towline", import.meta.url)),
+    `${dir}/towline`,
   );
   const timeout = Math.ceil(config.AGENT_TIMEOUT_MS / 1000);
   const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
@@ -195,11 +195,11 @@ export async function runLive(
     });
   });
   const command = sandbox.executeCommand(
-    `set -eu; chmod 700 ${dir}/engine; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/engine -dir /tmp/repository -codex ${codex}`,
+    `set -eu; chmod 700 ${dir}/towline; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/towline -dir /tmp/repository -codex ${codex}`,
     "/tmp/repository",
     {
-      ENGINE_ENDPOINT: config.ENGINE_ENDPOINT,
-      ENGINE_TOKEN: token,
+      TOWLINE_ENDPOINT: config.ENGINE_ENDPOINT,
+      TOWLINE_TOKEN: token,
       CODEX_API_KEY: config.OPENAI_API_KEY,
     },
     timeout + 30,
