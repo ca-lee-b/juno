@@ -159,9 +159,10 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
   const [selected, setSelected] = useState("");
   const session = useQuery({
     queryKey: ["session", id],
+    retry:false, refetchOnReconnect:false, refetchOnWindowFocus:false,
     queryFn: () => request<Session>(`/api/tasks/${id}/session`),
     enabled: !!id && !!connection.data?.connected,
-    refetchInterval: 2000,
+    refetchInterval:q=>q.state.error?false:2000,
   });
   const root = session.data?.turns[0]?.id;
   useEffect(() => {
@@ -177,7 +178,7 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
       request<{ task: Task }>(`/api/tasks/${encodeURIComponent(current)}`, { signal }).then(
         (r) => r.task,
       ),
-    enabled: !!id && !!connection.data?.connected,
+    enabled: !!id && (!!connection.data?.connected || !!session.data),
     refetchInterval: (query) =>
       query.state.data &&
       (isTaskActive(query.state.data.status) ||
@@ -317,8 +318,8 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
                 />
               </div>
             )}
-            {session.error && <p role="alert">{session.error.message}</p>}
-            {!connection.data?.connected ? (
+            {((session.error || !connection.data?.connected || task.data?.liveLost) && task.data && isTaskActive(task.data.status)) && <p role="status" className="px-6 text-caption text-muted-foreground">Live connection lost. The final output will appear when the run finishes.</p>}
+            {!connection.data?.connected && !session.data ? (
               <div className="p-8 space-y-4">
                 <p>Connect your server to open this task.</p>
                 <Button onClick={() => setConnectionOpen(true)}>Connect API</Button>
@@ -327,7 +328,7 @@ export function Workspace({ id: initialId = "" }: { id?: string }) {
               <p role="status" className="p-8">
                 Loading task…
               </p>
-            ) : task.error ? (
+            ) : task.error && !task.data ? (
               <div role="alert" className="p-8 space-y-4">
                 <p>{task.error.message}</p>
                 <Button onClick={() => task.refetch()}>Try Again</Button>

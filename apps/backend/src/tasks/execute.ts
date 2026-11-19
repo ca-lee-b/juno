@@ -15,7 +15,7 @@ type Dependencies = {
   tasks: Pick<TaskRepository, "start" | "setSource" | "setSandbox" | "complete" | "fail"> &
     Partial<Pick<TaskRepository, "conversation" | "latestDraft">>;
   readIssue: (input: TaskInput, sourceSha: string | null) => Promise<IssueContext>;
-  createSandbox: (taskId: string, retry?: boolean) => Promise<RepositorySandbox>;
+  createSandbox: (taskId: string) => Promise<RepositorySandbox>;
   execute: Execute;
   logger: Logger;
 };
@@ -55,7 +55,7 @@ export function createExecutionHandler({
       }
       await tasks.setSource(taskId, issue.sha, issue.branch, issue.title);
       operation = "create sandbox";
-      sandbox = await createSandbox(taskId, task.attempts > 1);
+      sandbox = await createSandbox(taskId);
       await tasks.setSandbox(taskId, sandbox.id);
       operation = "checkout repository";
       await sandbox.clone(issue, draft?.result?.patch);

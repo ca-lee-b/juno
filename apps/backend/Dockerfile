@@ -1,3 +1,8 @@
+FROM golang:1.25 AS engine
+WORKDIR /src
+COPY engine/ ./
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /engine ./cmd/engine
+
 FROM oven/bun:1.3.10 AS bun
 
 FROM node:24-bookworm-slim AS dependencies
@@ -12,7 +17,7 @@ FROM dependencies AS build
 RUN bun install --frozen-lockfile --filter @juno/backend
 COPY apps/backend/tsconfig*.json ./apps/backend/
 COPY apps/backend/src ./apps/backend/src
-RUN bun run --cwd apps/backend build
+RUN bun run --cwd apps/backend build:js
 
 FROM dependencies AS production-dependencies
 RUN bun install --frozen-lockfile --production --filter @juno/backend
@@ -27,5 +32,6 @@ COPY --from=build --chown=node:node /app/apps/backend/dist ./apps/backend/dist
 COPY --chown=node:node apps/backend/migrations ./apps/backend/migrations
 WORKDIR /app/apps/backend
 USER node
-EXPOSE 3000
+COPY --from=engine /engine ./bin/engine
+EXPOSE 3000 3010
 CMD ["node", "dist/api/main.js"]

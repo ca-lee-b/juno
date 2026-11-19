@@ -20,7 +20,7 @@ export function createRepositorySandboxProvider(
   provider: SandboxProvider,
   tasks?: TaskRepository,
 ) {
-  return async (taskId: string, retry = false): Promise<RepositorySandbox> => {
+  return async (taskId: string): Promise<RepositorySandbox> => {
     const sandbox = await provider(taskId);
     return {
       id: sandbox.id,
@@ -61,7 +61,7 @@ export function createRepositorySandboxProvider(
           prompt,
           sha,
           () => sandbox.dispose(),
-          tasks ? { tasks, id: taskId, retry } : undefined,
+          tasks ? { tasks, id: taskId } : undefined,
         ),
       dispose: () => sandbox.dispose(),
     };

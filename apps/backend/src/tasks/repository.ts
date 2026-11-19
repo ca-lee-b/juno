@@ -3,7 +3,7 @@ import type { Database } from "@/db/client";
 import type { TaskInput } from "@/tasks/input";
 import { IdempotencyConflict, type Task } from "@/tasks/types";
 
-const columns = `id, issue_title AS "issueTitle", session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
+const columns = `id, live_lost AS "liveLost", issue_title AS "issueTitle", session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
   source_sha AS "sourceSha", source_branch AS "sourceBranch", result, model, prompt_version AS "promptVersion", usage,
   error_code AS "errorCode", created_at AS "createdAt", updated_at AS "updatedAt",
   (SELECT jsonb_build_object(
@@ -159,6 +159,12 @@ export class TaskRepository {
     ).rows;
   }
 
+  async liveLost(id: string) {
+    await this.db.query("UPDATE tasks SET live_lost=true,accepting_messages=false WHERE id=$1", [
+      id,
+    ]);
+  }
+
   async reply(id: string, body: string) {
     await this.db.query("INSERT INTO task_messages(task_id,role,body) VALUES($1,'assistant',$2)", [
       id,
@@ -181,7 +187,7 @@ export class TaskRepository {
   async start(id: string) {
     return (
       await this.db.query<Task>(
-        `UPDATE tasks SET status = 'running', accepting_messages=(result IS NULL), attempts = attempts + 1,
+        `UPDATE tasks SET status = 'running', live_lost=false, accepting_messages=(result IS NULL), attempts = attempts + 1,
       error_code = NULL, updated_at = now() WHERE id = $1 AND status IN ('queued', 'running')
       RETURNING ${columns}`,
         [id],

@@ -25,6 +25,8 @@ const worker = shared.extend({
   E2B_API_KEY: z.string().default(""),
   FREESTYLE_API_KEY: z.string().default(""),
   DAYTONA_API_URL: z.url().default("https://app.daytona.io/api"),
+  ENGINE_ENDPOINT: z.union([z.literal(""), z.url({ protocol: /^wss$/ })]).default(""),
+  ENGINE_PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
   AGENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(1_200_000).default(1_200_000),
 });

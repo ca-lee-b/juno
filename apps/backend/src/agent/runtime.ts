@@ -24,7 +24,7 @@ export async function runCodex(
   prompt: string,
   sha: string,
   dispose: () => Promise<void>,
-  live?: { tasks: TaskRepository; id: string; retry?: boolean },
+  live?: { tasks: TaskRepository; id: string },
 ): Promise<SandboxOutput> {
   const setup = await sandbox.executeCommand(
     `mkdir -p ${OUTPUT_DIRECTORY} && npm install --prefix /tmp/codex-runtime @openai/codex@0.166.0`,
@@ -52,11 +52,11 @@ export async function runCodex(
     );
     if (installed.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", installed.exitCode);
   }
-  const history = live?.retry ? await live.tasks.messages(live.id) : [];
+  const history = live ? await live.tasks.messages(live.id) : [];
   const lastUser = history.findLast((m) => m.role === "user")?.id ?? "0";
   if (history.length)
     prompt +=
-      "\nThis is a retry. Continue using the operator’s previous answers and corrections in this transcript:\n" +
+      "\nInclude the operator’s messages already received for this run:\n" +
       JSON.stringify(history);
   await sandbox.uploadFile(Buffer.from(prompt), artifacts.prompt);
   let run: Awaited<ReturnType<typeof sandbox.executeCommand>>;
