@@ -75,12 +75,23 @@ export async function runLive(
     await readFile(new URL("../../bin/engine", import.meta.url)),
     `${dir}/engine`,
   );
+  const timeout = Math.ceil(config.AGENT_TIMEOUT_MS / 1000);
+  const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
+  const settings = [
+    `model = ${JSON.stringify(config.OPENAI_CODEX_MODEL)}`,
+    `model_reasoning_effort = ${JSON.stringify(config.OPENAI_CODEX_MODEL_EFFORT)}`,
+    'approval_policy = "never"',
+    'sandbox_mode = "danger-full-access"',
+    "[features]",
+    "default_mode_request_user_input = true",
+  ].join("\n");
+  await sandbox.uploadFile(Buffer.from(settings), `${dir}/codex.toml`);
   const token = randomBytes(32).toString("hex");
   const key = `Bearer ${token}`;
   let socket: WebSocket | undefined;
-  let turn: string | undefined,
-    idle = false,
-    stopping = false;
+  // Undefined until the first turn starts, null after a turn completes.
+  let turn: string | null | undefined;
+  let stopping = false;
   let question:
     | { requestId: number; remaining: Question[]; answers: Record<string, { answers: string[] }> }
     | undefined;
@@ -138,11 +149,8 @@ export async function runLive(
           event?: Event;
         };
         if (frame.id === "stream") {
-          if (frame.error) {
-            failed = true;
-            return;
-          }
-          ready = true;
+          ready = !frame.error;
+          failed ||= !ready;
           return;
         }
         if (ack && frame.id === ack.id) {
@@ -164,11 +172,9 @@ export async function runLive(
         }
         if (e.method === "turn/started") {
           turn = e.params.turn?.id;
-          idle = false;
         }
         if (e.method === "turn/completed") {
-          turn = undefined;
-          idle = true;
+          turn = null;
           failed ||= e.params.turn?.status !== "completed";
         }
         if (e.method === "item/completed" && e.params.item?.type === "agentMessage") {
@@ -188,22 +194,6 @@ export async function runLive(
       }
     });
   });
-  const timeout = Math.ceil(config.AGENT_TIMEOUT_MS / 1000);
-  const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
-  const settings = [
-    `model = ${JSON.stringify(config.OPENAI_CODEX_MODEL)}`,
-    `model_reasoning_effort = ${JSON.stringify(config.OPENAI_CODEX_MODEL_EFFORT)}`,
-    'approval_policy = "never"',
-    'sandbox_mode = "danger-full-access"',
-    "[features]",
-    "default_mode_request_user_input = true",
-  ].join("\n");
-  try {
-    await sandbox.uploadFile(Buffer.from(settings), `${dir}/codex.toml`);
-  } catch (error) {
-    waiting.delete(key);
-    throw error;
-  }
   const command = sandbox.executeCommand(
     `set -eu; chmod 700 ${dir}/engine; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/engine -dir /tmp/repository -codex ${codex}`,
     "/tmp/repository",
@@ -227,13 +217,13 @@ export async function runLive(
         const error = await request({ op: "send", text: prompt });
         if (error && error !== "disconnected") throw new ExecutionError("EXECUTION_FAILED");
       }
-      if (ready && (turn || idle)) {
-        const messages = (await tasks.messages(id)).filter((m) => m.role === "user");
+      if (ready && turn !== undefined) {
+        const messages = lost ? [] : (await tasks.messages(id)).filter((m) => m.role === "user");
         const next = messages.find((m) => BigInt(m.id) > BigInt(lastUser));
         if (lost && question) {
           await request({ op: "respond", requestId: question.requestId, result: { answers: {} } });
           question = undefined;
-        } else if (next && !lost) {
+        } else if (next) {
           let error: string | undefined;
           if (question) {
             const q = question.remaining.shift();
@@ -255,8 +245,9 @@ export async function runLive(
             );
           }
           if (!error) lastUser = next.id;
-          else if (error !== "turn is not active" && error !== "busy") socket?.terminate();
-        } else if (idle && (lost || (await tasks.closeMessages(id, messages.length)))) {
+          else if (!["turn is not active", "busy", "disconnected"].includes(error))
+            throw new ExecutionError("EXECUTION_FAILED");
+        } else if (turn === null && (lost || (await tasks.closeMessages(id, messages.length)))) {
           stopping = !(await request({ op: "prepare_shutdown" }));
         }
       }
