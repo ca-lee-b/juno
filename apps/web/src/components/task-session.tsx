@@ -133,7 +133,7 @@ export function TaskSession({
       )}
       {open && (
         <Button
-          variant="outline"
+          variant="link"
           size="sm"
           disabled={settle.isPending}
           onClick={() => settle.mutate()}

@@ -242,8 +242,11 @@ export async function runLive(
       printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1
       unset CODEX_API_KEY
       gh auth setup-git --hostname github.com
-      git config user.name Juno
-      git config user.email juno@users.noreply.github.com
+      identity=$(gh api user --jq '[.id, .login] | @tsv')
+      login=$(printf '%s' "$identity" | cut -f2)
+      account_id=$(printf '%s' "$identity" | cut -f1)
+      git config user.name "$login"
+      git config user.email "$account_id+$login@users.noreply.github.com"
       nohup ${dir}/towline -dir /tmp/repository -codex ${codex} </dev/null >/dev/null 2>&1 &
       echo $! > ${dir}/towline.pid`,
       "/tmp/repository",
