@@ -1252,7 +1252,7 @@ html.transitioning *::after {
 .issue-drawer {
   display: flex;
   flex-direction: column;
-  width: min(100vw, 760px);
+  width: min(100vw, 1280px);
   height: 100dvh;
   max-height: 100dvh;
   padding: 0;

@@ -8,7 +8,6 @@ import type { Logger } from "pino";
 import { z } from "zod";
 import type { GitHubCatalog } from "@/github/catalog";
 import { taskInputSchema } from "@/tasks/input";
-import type { createPublisher } from "@/tasks/publish";
 import type { TaskRepository } from "@/tasks/repository";
 import { IdempotencyConflict } from "@/tasks/types";
 
@@ -16,14 +15,14 @@ const repositorySchema = taskInputSchema.pick({ owner: true, repo: true });
 
 type Dependencies = {
   github?: GitHubCatalog | undefined;
-  tasks: Pick<TaskRepository, "create" | "get" | "list">;
-  publish?: ReturnType<typeof createPublisher>;
+  tasks: Pick<TaskRepository, "create" | "get" | "list"> &
+    Partial<Pick<TaskRepository, "turns" | "send" | "settle" | "conversation">>;
   apiToken: string;
   ready: () => Promise<void>;
   logger: Logger;
 };
 
-export function createApp({ tasks, apiToken, ready, logger, github, publish }: Dependencies) {
+export function createApp({ tasks, apiToken, ready, logger, github }: Dependencies) {
   const app = new Hono();
   app.use(requestId());
   app.use(secureHeaders());
@@ -119,17 +118,36 @@ export function createApp({ tasks, apiToken, ready, logger, github, publish }: D
     c.header("Cache-Control", "no-store");
     return c.json(await tasks.list(parsed.data));
   });
-  app.post("/v1/tasks/:id/draft-pr", async (c) => {
-    c.header("Cache-Control", "no-store");
+  app.get("/v1/tasks/:id/session", async (c) => {
     const id = z.uuid().safeParse(c.req.param("id"));
     if (!id.success) return c.json({ error: "Invalid task ID" }, 400);
-    if (!publish) return c.json({ error: "GitHub publishing is unavailable" }, 503);
     const task = await tasks.get(id.data);
-    if (!task) return c.json({ error: "Task not found" }, 404);
-    const result = await publish(task);
-    const { httpStatus, ...body } = result;
-    if (httpStatus === 202) c.header("Retry-After", "2");
-    return c.json(body, httpStatus);
+    if (!task || !tasks.turns || !tasks.conversation)
+      return c.json({ error: "Task unavailable" }, 404);
+    c.header("Cache-Control", "no-store");
+    return c.json({
+      turns: await tasks.turns(task.sessionId ?? task.id),
+      messages: await tasks.conversation(task.sessionId ?? task.id),
+    });
+  });
+  app.post("/v1/tasks/:id/session", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    const input = z
+      .object({ body: z.string().trim().min(1).max(8000), messageId: z.uuid() })
+      .safeParse(await c.req.json().catch(() => null));
+    if (!id.success || !input.success) return c.json({ error: "Invalid message" }, 400);
+    const task = await tasks.get(id.data);
+    if (!task || !tasks.send) return c.json({ error: "Task unavailable" }, 404);
+    const sent = await tasks.send(task.sessionId ?? task.id, input.data.body, input.data.messageId);
+    return sent ? c.json(sent, 202) : c.json({ error: "This session is closed" }, 409);
+  });
+  app.post("/v1/tasks/:id/settle", async (c) => {
+    const id = z.uuid().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Invalid task ID" }, 400);
+    const task = await tasks.get(id.data);
+    if (!task || !tasks.settle) return c.json({ error: "Task unavailable" }, 404);
+    await tasks.settle(task.sessionId ?? task.id);
+    return c.json({ settling: true }, 202);
   });
   app.get("/v1/tasks/:id", async (c) => {
     c.header("Cache-Control", "no-store");

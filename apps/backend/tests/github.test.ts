@@ -8,11 +8,13 @@ const mocks = vi.hoisted(() => ({
   repo: vi.fn(),
   issue: vi.fn(),
   commit: vi.fn(),
+  pull: vi.fn(),
 }));
 vi.mock("octokit", () => ({
   Octokit: class {
     hook = { before: vi.fn() };
     rest = {
+      pulls: { get: mocks.pull },
       repos: {
         listForAuthenticatedUser: mocks.repositories,
         get: mocks.repo,
@@ -53,4 +55,33 @@ it("reads private issues while retaining source pinning and PR rejection", async
   expect(mocks.commit).not.toHaveBeenCalled();
   mocks.issue.mockResolvedValue({ data: { pull_request: {} } });
   await expect(read(input, null)).rejects.toThrow("Expected an issue");
+});
+
+it("loads a queued revision from its published PR head and keeps the PR base", async () => {
+  const input = { owner: "owner", repo: "repo", issueNumber: 2 };
+  const branch = "byo-pr-agent/session";
+  const publication = {
+    status: "published" as const,
+    prNumber: 3,
+    branch,
+    baseBranch: "release",
+    commitSha: null,
+    prUrl: null,
+    branchUrl: null,
+    error: null,
+  };
+  mocks.repo.mockResolvedValue({ data: { size: 1, default_branch: "main" } });
+  mocks.issue.mockResolvedValue({ data: { title: "Issue", body: "details" } });
+  mocks.pull.mockResolvedValue({
+    data: {
+      state: "open",
+      head: { ref: branch, sha: "b".repeat(40), repo: { full_name: "owner/repo" } },
+      base: { ref: "release" },
+    },
+  });
+  expect(await createIssueReader("token")(input, "a".repeat(40), publication)).toMatchObject({
+    sha: "b".repeat(40),
+    branch: "release",
+  });
+  expect(mocks.commit).not.toHaveBeenCalled();
 });

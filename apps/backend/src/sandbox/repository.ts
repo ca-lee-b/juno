@@ -1,3 +1,4 @@
+import type { SessionTasks } from "@/agent/live";
 import { runCodex } from "@/agent/runtime";
 import type { WorkerConfig } from "@/config";
 import { ExecutionError, type RepositorySandbox } from "@/execution/contracts";
@@ -7,23 +8,28 @@ import type { SandboxProvider } from "@/sandbox/contracts";
 const quote = (s: string) => `'${s.replaceAll("'", "'\\''")}'`;
 type RepositoryConfig = Pick<
   WorkerConfig,
+  | "ENGINE_ENDPOINT"
   | "GITHUB_TOKEN"
+  | "DAYTONA_GITHUB_SECRET"
   | "OPENAI_API_KEY"
   | "OPENAI_CODEX_MODEL"
   | "OPENAI_CODEX_MODEL_EFFORT"
   | "AGENT_TIMEOUT_MS"
->;
+> & { SANDBOX_PROVIDER?: WorkerConfig["SANDBOX_PROVIDER"] };
 
 export function createRepositorySandboxProvider(
   config: RepositoryConfig,
   provider: SandboxProvider,
+  tasks: SessionTasks,
 ) {
   return async (taskId: string): Promise<RepositorySandbox> => {
+    const leaseStart = Date.now();
     const sandbox = await provider(taskId);
     return {
       id: sandbox.id,
-      async clone(issue) {
-        if (issue.private) {
+      async clone(issue, patch) {
+        // Fetch on the worker when available so Daytona checkout does not depend on sandbox DNS.
+        if (issue.private || (config.SANDBOX_PROVIDER === "daytona" && config.GITHUB_TOKEN)) {
           if (!config.GITHUB_TOKEN) throw new ExecutionError("SETUP_FAILED");
           const bundle = await repositoryBundle(issue, config.GITHUB_TOKEN);
           await sandbox.uploadFile(bundle, "/tmp/source.bundle");
@@ -34,15 +40,38 @@ export function createRepositorySandboxProvider(
             120,
           );
           if (cloned.exitCode !== 0) throw new ExecutionError("SETUP_FAILED");
-          return;
+        } else
+          await sandbox.clone(
+            `https://github.com/${issue.owner}/${issue.repo}.git`,
+            "/tmp/repository",
+            issue.sha,
+          );
+        if (issue.sessionBranch) {
+          const branch = await sandbox.executeCommand(
+            `git switch -c ${quote(issue.sessionBranch)}`,
+            "/tmp/repository",
+            undefined,
+            30,
+          );
+          if (branch.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", branch.exitCode);
         }
-        await sandbox.clone(
-          `https://github.com/${issue.owner}/${issue.repo}.git`,
-          "/tmp/repository",
-          issue.sha,
-        );
+        if (patch) {
+          await sandbox.uploadFile(Buffer.from(patch), "/tmp/draft.patch");
+          const applied = await sandbox.executeCommand(
+            "git apply --binary /tmp/draft.patch",
+            "/tmp/repository",
+            undefined,
+            30,
+          );
+          if (applied.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", applied.exitCode);
+        }
       },
-      execute: (prompt, sha) => runCodex(sandbox, config, prompt, sha, () => sandbox.dispose()),
+      execute: (prompt) =>
+        runCodex(sandbox, config, prompt, () => sandbox.dispose(), {
+          tasks,
+          id: taskId,
+          leaseStart,
+        }),
       dispose: () => sandbox.dispose(),
     };
   };

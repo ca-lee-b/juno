@@ -1,6 +1,7 @@
 import { Queue, Worker } from "bullmq";
 import { z } from "zod";
 import { createExecutor } from "@/agent/executor";
+import { listenForEngines } from "@/agent/live";
 import { readWorkerConfig } from "@/config";
 import { createDatabase } from "@/db/client";
 import { createIssueReader } from "@/github/issues";
@@ -13,6 +14,7 @@ import { createExecutionHandler } from "@/tasks/execute";
 import { TaskRepository } from "@/tasks/repository";
 
 const config = readWorkerConfig();
+const engineServer = listenForEngines(config.ENGINE_PORT);
 const logger = createLogger(config.LOG_LEVEL);
 const db = createDatabase(config.DATABASE_URL);
 db.on("error", () => logger.error("database connection failed"));
@@ -27,7 +29,7 @@ const execute = createExecutionHandler({
   tasks,
   logger,
   readIssue: createIssueReader(config.GITHUB_TOKEN),
-  createSandbox: createRepositorySandboxProvider(config, createSandboxProvider(config)),
+  createSandbox: createRepositorySandboxProvider(config, createSandboxProvider(config), tasks),
   execute: createExecutor(config),
 });
 const worker = new Worker(
@@ -68,6 +70,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
       ).unref();
       await dispatcher;
       await worker.close();
+      engineServer.close();
       await queue.close();
       await Promise.all([producer.quit(), consumer.quit(), db.end()]);
       clearTimeout(deadline);

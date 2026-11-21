@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { ExecutionError } from "@/execution/contracts";
 import { createLogger } from "@/logger";
 import { createExecutionHandler } from "@/tasks/execute";
 import type { Task } from "@/tasks/types";
@@ -64,7 +65,7 @@ function setup() {
     execute,
     logger: createLogger("silent"),
   });
-  return { tasks, sandbox, createSandbox, readIssue, execute, result, handle };
+  return { task, tasks, sandbox, createSandbox, readIssue, execute, result, handle };
 }
 
 describe("execution lifecycle", () => {
@@ -73,11 +74,38 @@ describe("execution lifecycle", () => {
     await handle("task-1", false);
     expect(tasks.complete).toHaveBeenCalledOnce();
     expect(tasks.complete).toHaveBeenCalledWith("task-1", result);
-    expect(tasks.complete.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(tasks.complete.mock.invocationCallOrder[0]).toBeGreaterThan(
       sandbox.dispose.mock.invocationCallOrder[0] ?? Infinity,
     );
     expect(sandbox.dispose).toHaveBeenCalledOnce();
-    expect(tasks.setSandbox).toHaveBeenLastCalledWith("task-1", null);
+    expect(tasks.setSandbox).toHaveBeenCalledExactlyOnceWith("task-1", "sandbox-1");
+  });
+  it("restores the unpublished patch and prior answers before revising", async () => {
+    const { task, tasks, readIssue, createSandbox, sandbox, execute, result } = setup();
+    const draft = { ...task, ...result };
+    task.sessionId = "original";
+    task.instruction = "Change the heading";
+    const history = [{ id: "1", role: "user", body: "Use cobalt" }];
+    const handle = createExecutionHandler({
+      tasks: { ...tasks, latestDraft: async () => draft, conversation: async () => history },
+      readIssue,
+      createSandbox,
+      execute,
+      logger: createLogger("silent"),
+    });
+    await handle(task.id, true);
+    expect(sandbox.clone).toHaveBeenCalledWith(
+      expect.objectContaining({ history, instruction: task.instruction }),
+      draft.result.patch,
+    );
+    expect(tasks.complete).toHaveBeenCalledExactlyOnceWith(task.id, result);
+  });
+  it("keeps a result write failure terminal after releasing a live sandbox", async () => {
+    const { handle, tasks, sandbox } = setup();
+    tasks.complete.mockRejectedValue(new Error("database unavailable"));
+    await expect(handle("task-1", false)).rejects.toThrow("save result");
+    expect(tasks.fail).toHaveBeenCalledWith("task-1", true, expect.any(String));
+    expect(sandbox.dispose).toHaveBeenCalledOnce();
   });
   it("skips redelivery of terminal tasks", async () => {
     const { handle, tasks, createSandbox } = setup();
@@ -90,12 +118,21 @@ describe("execution lifecycle", () => {
     async (final) => {
       const { handle, tasks, sandbox, execute } = setup();
       execute.mockRejectedValue(new Error("provider secret"));
-      await expect(handle("task-1", final)).rejects.toThrow("Task execution failed");
+      await expect(handle("task-1", final)).rejects.toThrow(
+        /^Task execution failed during run agent \(SETUP_FAILED\)$/,
+      );
       expect(tasks.fail).toHaveBeenCalledWith("task-1", final, "SETUP_FAILED");
       expect(sandbox.dispose).toHaveBeenCalledOnce();
       expect(tasks.complete).not.toHaveBeenCalled();
     },
   );
+  it("preserves the checkout failure and exit code for the queue", async () => {
+    const { handle, sandbox } = setup();
+    sandbox.clone.mockRejectedValue(new ExecutionError("SETUP_FAILED", 128));
+    await expect(handle("task-1", false)).rejects.toThrow(
+      /^Task execution failed during checkout repository \(SETUP_FAILED, exit 128\)$/,
+    );
+  });
   it("cleans up even if recording the sandbox ID fails", async () => {
     const { handle, tasks, sandbox } = setup();
     tasks.setSandbox.mockRejectedValueOnce(new Error("database unavailable"));
@@ -105,9 +142,10 @@ describe("execution lifecycle", () => {
   it("does not rerun successful model work when cleanup fails", async () => {
     const { handle, tasks, sandbox } = setup();
     sandbox.dispose.mockRejectedValue(new Error("cleanup unavailable"));
-    await handle("task-1", false);
-    expect(tasks.complete).toHaveBeenCalledOnce();
-    expect(tasks.fail).not.toHaveBeenCalled();
+    await expect(handle("task-1", false)).rejects.toThrow("release sandbox");
+    expect(sandbox.dispose).toHaveBeenCalledTimes(2);
+    expect(tasks.fail).toHaveBeenCalledWith("task-1", true, "CLEANUP_FAILED");
+    expect(tasks.complete).not.toHaveBeenCalled();
     expect(tasks.setSandbox).not.toHaveBeenCalledWith("task-1", null);
   });
 });

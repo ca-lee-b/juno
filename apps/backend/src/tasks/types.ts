@@ -12,16 +12,12 @@ export type Publication = {
   prUrl: string | null;
   error: string | null;
 };
-export type PublishedPull = { number: number; url: string };
-
-export class PublicationError extends Error {
-  constructor(
-    readonly code: "BRANCH_CONFLICT" | "BASE_DIVERGED" | "PATCH_INVALID" | "PR_CONFLICT",
-  ) {
-    super(code);
-  }
-}
 export type Task = {
+  settleRequested?: boolean;
+  waitingForMessage?: boolean;
+  issueTitle?: string | null;
+  sessionId?: string | null;
+  instruction?: string | null;
   id: string;
   input: TaskInput;
   status: TaskStatus;

@@ -4,7 +4,6 @@ import { readApiConfig } from "@/config";
 import { createDatabase } from "@/db/client";
 import { createGitHubCatalog } from "@/github/catalog";
 import { createLogger } from "@/logger";
-import { createPublisher } from "@/tasks/publish";
 import { TaskRepository } from "@/tasks/repository";
 
 const config = readApiConfig();
@@ -13,7 +12,6 @@ const db = createDatabase(config.DATABASE_URL);
 db.on("error", () => logger.error("database connection failed"));
 const app = createApp({
   tasks: new TaskRepository(db),
-  publish: createPublisher(db, config.GITHUB_TOKEN),
   github: config.GITHUB_TOKEN ? createGitHubCatalog(config.GITHUB_TOKEN) : undefined,
   apiToken: config.API_TOKEN,
   logger,

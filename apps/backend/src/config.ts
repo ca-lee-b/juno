@@ -15,18 +15,20 @@ const api = shared.extend({
 const effort = z.enum(["minimal", "low", "medium", "high", "xhigh"]);
 
 const worker = shared.extend({
+  GITHUB_TOKEN: z.string().trim().min(1),
   OPENAI_API_KEY: z.string().min(1),
   OPENAI_CODEX_MODEL: z.string().trim().min(1).default("gpt-6-astra"),
   OPENAI_CODEX_MODEL_EFFORT: effort.default("medium"),
-  OPENAI_WRITEUP_MODEL: z.string().trim().min(1).default("gpt-6-luna"),
-  OPENAI_WRITEUP_MODEL_EFFORT: effort.default("high"),
   SANDBOX_PROVIDER: z.enum(["daytona", "freestyle", "e2b"]).default("daytona"),
+  DAYTONA_GITHUB_SECRET: z.string().trim().optional(),
   DAYTONA_API_KEY: z.string().default(""),
   E2B_API_KEY: z.string().default(""),
   FREESTYLE_API_KEY: z.string().default(""),
   DAYTONA_API_URL: z.url().default("https://app.daytona.io/api"),
+  ENGINE_ENDPOINT: z.url({ protocol: /^wss$/ }),
+  ENGINE_PORT: z.coerce.number().int().min(1).max(65535).default(3010),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
-  AGENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600000).default(600000),
+  AGENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(1_200_000).default(1_200_000),
 });
 
 const validatedWorker = worker.superRefine((config, ctx) => {

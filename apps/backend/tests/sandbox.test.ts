@@ -1,9 +1,19 @@
 import { expect, it, vi } from "vitest";
+import { runLive } from "@/agent/live";
 import type { IssueContext } from "@/execution/contracts";
 import type { Sandbox, SandboxProvider } from "@/sandbox/contracts";
 import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
+vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
+const tasks = {
+  inbox: vi.fn(),
+  reply: vi.fn(),
+  liveLost: vi.fn(),
+  waiting: vi.fn(),
+};
 const config = {
+  GITHUB_TOKEN: "github-test",
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "openai-secret",
   OPENAI_CODEX_MODEL: "test",
   OPENAI_CODEX_MODEL_EFFORT: "medium" as const,
@@ -19,8 +29,10 @@ const issue: IssueContext = {
   branch: "main",
 };
 function setup() {
+  vi.mocked(runLive).mockResolvedValue({ summary: "done", usage: null });
   const environment = {
     id: "other-provider-id",
+    renew: vi.fn(),
     clone: vi.fn<Sandbox["clone"]>().mockResolvedValue(undefined),
     executeCommand: vi
       .fn<Sandbox["executeCommand"]>()
@@ -32,7 +44,11 @@ function setup() {
     dispose: vi.fn<Sandbox["dispose"]>().mockResolvedValue(undefined),
   } satisfies Sandbox;
   const provider = vi.fn<SandboxProvider>().mockResolvedValue(environment);
-  return { environment, provider, create: createRepositorySandboxProvider(config, provider) };
+  return {
+    environment,
+    provider,
+    create: createRepositorySandboxProvider(config, provider, tasks),
+  };
 }
 
 it("runs repository setup, Codex, artifact collection and cleanup with an independent provider", async () => {
@@ -46,36 +62,20 @@ it("runs repository setup, Codex, artifact collection and cleanup with an indepe
     "/tmp/repository",
     issue.sha,
   );
-  expect(await sandbox.execute("fix issue", issue.sha)).toEqual({
+  expect(await sandbox.execute("fix issue")).toEqual({
     summary: "done",
     patch: "",
-    events: "",
+    usage: null,
   });
-  expect(environment.executeCommand).toHaveBeenCalledWith(
-    expect.stringContaining("codex exec"),
-    "/tmp/repository",
-    { CODEX_API_KEY: "openai-secret" },
-    31,
-  );
+  expect(runLive).toHaveBeenCalledOnce();
   await sandbox.dispose();
   expect(environment.dispose).toHaveBeenCalledOnce();
 });
 
 it("uses the injected provider to destroy an environment after a transport failure", async () => {
   const { environment, create } = setup();
-  environment.executeCommand.mockImplementation(async (command) => {
-    if (command.includes("codex exec")) throw new Error("transport");
-    return { exitCode: 0, result: "" };
-  });
+  vi.mocked(runLive).mockRejectedValueOnce(new Error("transport"));
   const sandbox = await create("task-id");
-  await expect(sandbox.execute("fix issue", issue.sha)).rejects.toThrow("EXECUTION_TIMEOUT");
+  await expect(sandbox.execute("fix issue")).rejects.toThrow("EXECUTION_FAILED");
   expect(environment.dispose).toHaveBeenCalledOnce();
-});
-
-it("rejects private repository setup without a backend GitHub token", async () => {
-  const { environment, create } = setup();
-  const sandbox = await create("task-id");
-  await expect(sandbox.clone({ ...issue, private: true })).rejects.toThrow("SETUP_FAILED");
-  expect(environment.clone).not.toHaveBeenCalled();
-  expect(environment.uploadFile).not.toHaveBeenCalled();
 });

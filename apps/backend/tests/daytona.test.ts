@@ -1,13 +1,21 @@
 import { beforeEach, expect, it, vi } from "vitest";
+import { runLive } from "@/agent/live";
 import { readWorkerConfig } from "@/config";
 import { createDaytonaProvider } from "@/sandbox/daytona";
 
 import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
+vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
+const tasks = {
+  inbox: vi.fn(),
+  reply: vi.fn(),
+  liveLost: vi.fn(),
+  waiting: vi.fn(),
+};
 const createSandboxProvider = (
   config: Parameters<typeof createRepositorySandboxProvider>[0] &
     Parameters<typeof createDaytonaProvider>[0],
-) => createRepositorySandboxProvider(config, createDaytonaProvider(config));
+) => createRepositorySandboxProvider(config, createDaytonaProvider(config), tasks);
 
 const mocks = vi.hoisted(() => ({
   bundle: vi.fn(),
@@ -27,12 +35,15 @@ vi.mock("@daytona/sdk", () => ({
 const config = readWorkerConfig({
   DATABASE_URL: "postgres://localhost/db",
   REDIS_URL: "redis://localhost",
+  GITHUB_TOKEN: "github-test",
+  ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "secret",
   DAYTONA_API_KEY: "private",
   OPENAI_CODEX_MODEL: "test",
 });
 beforeEach(() => {
-  vi.resetAllMocks();
+  vi.clearAllMocks();
+  vi.mocked(runLive).mockResolvedValue({ summary: "done", usage: null });
   mocks.create.mockResolvedValue({
     id: "sandbox",
     process: { executeCommand: mocks.command },
@@ -45,36 +56,16 @@ beforeEach(() => {
 });
 it("executes once and captures artifacts without placing keys in command text", async () => {
   const sandbox = await createSandboxProvider(config)("task");
-  expect(await sandbox.execute("issue", "a".repeat(40))).toEqual({
+  expect(await sandbox.execute("issue")).toEqual({
     summary: "done",
     patch: "",
-    events: "",
+    usage: null,
   });
-  const args = mocks.command.mock.calls.find(([command]) => command.includes("codex exec"));
-  expect(args).toBeDefined();
-  expect(args?.[0]).not.toContain("secret");
-  expect(args?.[0]).toContain("--model 'test'");
-  expect(args?.[0]).toContain(`-c 'model_reasoning_effort="medium"'`);
-  expect(args?.[2]).toEqual({ CODEX_API_KEY: "secret" });
+  expect(runLive).toHaveBeenCalledOnce();
 });
-it.each([1, 124, 137])(
-  "classifies CLI exit %s and destroys timed-out environments",
-  async (exitCode) => {
-    mocks.command.mockImplementation(async (command: string) => ({
-      exitCode: command.includes("codex exec") ? exitCode : 0,
-      result: "0",
-    }));
-    const sandbox = await createSandboxProvider(config)("task");
-    await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
-      code: exitCode === 1 ? "EXECUTION_FAILED" : "EXECUTION_TIMEOUT",
-      exitCode,
-    });
-    expect(mocks.delete).toHaveBeenCalledTimes(exitCode === 1 ? 0 : 1);
-  },
-);
 it("installs only the two built-in skills before starting Codex", async () => {
   const sandbox = await createSandboxProvider(config)("task");
-  await sandbox.execute("issue", "a".repeat(40));
+  await sandbox.execute("issue");
   const commands = mocks.command.mock.calls;
   expect(commands[0]?.[0]).toContain("npm install");
   expect(commands[1]?.[0]).toContain("--skill 'codebase-design'");
@@ -86,7 +77,7 @@ it("installs only the two built-in skills before starting Codex", async () => {
     expect(call[1]).toBe("/tmp");
     expect(call[2]).toEqual({ DISABLE_TELEMETRY: "1" });
   }
-  expect(commands[3]?.[0]).toContain("codex exec");
+  expect(runLive).toHaveBeenCalledOnce();
 });
 it.each([1, 2])("does not start Codex when built-in skill %s fails", async (index) => {
   for (let i = 0; i < index; i++) {
@@ -94,7 +85,7 @@ it.each([1, 2])("does not start Codex when built-in skill %s fails", async (inde
   }
   mocks.command.mockResolvedValueOnce({ exitCode: 1, result: "skill install failed" });
   const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
+  await expect(sandbox.execute("issue")).rejects.toMatchObject({
     code: "SETUP_FAILED",
     exitCode: 1,
   });
@@ -102,10 +93,7 @@ it.each([1, 2])("does not start Codex when built-in skill %s fails", async (inde
   expect(mocks.upload).not.toHaveBeenCalled();
 });
 it("destroys the sandbox before surfacing a transport timeout", async () => {
-  mocks.command.mockImplementation(async (command: string) => {
-    if (command.includes("codex exec")) throw new Error("secret headers");
-    return { exitCode: 0, result: "0" };
-  });
+  vi.mocked(runLive).mockRejectedValueOnce(new Error("transport"));
   let finishDeletion!: () => void;
   mocks.delete.mockImplementation(
     () =>
@@ -115,8 +103,8 @@ it("destroys the sandbox before surfacing a transport timeout", async () => {
   );
   const sandbox = await createSandboxProvider(config)("task");
   let settled = false;
-  const execution = sandbox.execute("issue", "a".repeat(40));
-  const rejection = expect(execution).rejects.toThrow("EXECUTION_TIMEOUT");
+  const execution = sandbox.execute("issue");
+  const rejection = expect(execution).rejects.toThrow("EXECUTION_FAILED");
   void execution.then(
     () => {
       settled = true;
@@ -133,52 +121,33 @@ it("destroys the sandbox before surfacing a transport timeout", async () => {
   await sandbox.dispose();
   expect(mocks.delete).toHaveBeenCalledOnce();
 });
-it("classifies artifact download failures", async () => {
-  mocks.download.mockRejectedValue(new Error("missing"));
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");
-});
-
-it("uploads a private Git bundle without exposing the GitHub token to Daytona", async () => {
-  mocks.bundle.mockResolvedValue(Buffer.from("bundle"));
-  const sandbox = await createSandboxProvider({ ...config, GITHUB_TOKEN: "github-secret" })("task");
-  await sandbox.clone({
-    owner: "owner",
-    repo: "repo",
-    issueNumber: 1,
-    title: "issue",
-    body: "",
-    sha: "a".repeat(40),
-    branch: "main",
-    private: true,
-  });
-  expect(mocks.bundle).toHaveBeenCalledOnce();
-  expect(mocks.upload).toHaveBeenCalledWith(Buffer.from("bundle"), "/tmp/source.bundle");
-  expect(JSON.stringify(mocks.command.mock.calls)).not.toContain("github-secret");
-});
-
-it("rejects oversized patches before downloading artifacts", async () => {
-  mocks.command.mockImplementation(async (command: string) => ({
-    exitCode: 0,
-    result: command.includes("wc -c") ? String(5 * 1024 * 1024 + 1) : "0",
-  }));
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("PATCH_TOO_LARGE");
-  expect(mocks.download).not.toHaveBeenCalled();
-});
-
-it("rejects missing output artifacts", async () => {
-  mocks.download.mockImplementation(async (path: string) =>
-    path.endsWith("summary.txt") ? undefined : Buffer.from("output"),
-  );
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");
-});
+it.each([true, false])(
+  "uploads the pinned Git bundle without exposing the token (private=%s)",
+  async (privateRepo) => {
+    mocks.bundle.mockResolvedValue(Buffer.from("bundle"));
+    const sandbox = await createSandboxProvider({ ...config, GITHUB_TOKEN: "github-secret" })(
+      "task",
+    );
+    await sandbox.clone({
+      owner: "owner",
+      repo: "repo",
+      issueNumber: 1,
+      title: "issue",
+      body: "",
+      sha: "a".repeat(40),
+      branch: "main",
+      private: privateRepo,
+    });
+    expect(mocks.bundle).toHaveBeenCalledOnce();
+    expect(mocks.upload).toHaveBeenCalledWith(Buffer.from("bundle"), "/tmp/source.bundle");
+    expect(JSON.stringify(mocks.command.mock.calls)).not.toContain("github-secret");
+  },
+);
 
 it("does not execute Codex when installation fails", async () => {
   mocks.command.mockResolvedValueOnce({ exitCode: 1, result: "installation failed" });
   const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
+  await expect(sandbox.execute("issue")).rejects.toMatchObject({
     code: "SETUP_FAILED",
     exitCode: 1,
   });
@@ -197,29 +166,41 @@ it("allows cleanup to be retried after a failed deletion", async () => {
 });
 
 it("preserves Daytona isolation, lifetime, and exact-commit public cloning", async () => {
-  const clone = vi.fn().mockResolvedValue(undefined);
-  mocks.create.mockResolvedValueOnce({ id: "daytona-id", git: { clone } });
   const sandbox = await createDaytonaProvider(config)("task-id");
   expect(mocks.create).toHaveBeenCalledWith(
     {
       language: "typescript",
       public: false,
       ephemeral: true,
-      autoStopInterval: 30,
+      autoStopInterval: 0,
       ttlMinutes: 30,
       labels: { project: "byo-pr-agent", taskId: "task-id" },
     },
     { timeout: 60 },
   );
   await sandbox.clone("https://github.com/owner/repo.git", "/tmp/repository", "a".repeat(40));
-  expect(clone).toHaveBeenCalledWith(
-    "https://github.com/owner/repo.git",
-    "/tmp/repository",
+  expect(mocks.command).toHaveBeenCalledWith(
+    expect.stringContaining(`fetch --depth=1 origin '${"a".repeat(40)}'`),
+    "/tmp",
     undefined,
-    "a".repeat(40),
-    undefined,
-    undefined,
-    false,
-    1,
+    120,
   );
+  mocks.command.mockResolvedValueOnce({ exitCode: 128, result: "missing commit" });
+  await expect(
+    sandbox.clone("https://github.com/owner/repo.git", "/tmp/other", "b".repeat(40)),
+  ).rejects.toMatchObject({ code: "SETUP_FAILED", exitCode: 128 });
+});
+
+it("mounts a configured Daytona GitHub secret and extends the existing sandbox lease", async () => {
+  const setTtl = vi.fn();
+  mocks.create.mockResolvedValueOnce({
+    id: "live",
+    setTtl,
+    process: { executeCommand: mocks.command },
+  });
+  const provider = createDaytonaProvider({ ...config, DAYTONA_GITHUB_SECRET: "juno-github" });
+  const sandbox = await provider("issue");
+  expect(mocks.create.mock.calls[0]?.[0].secrets).toEqual({ GH_TOKEN: "juno-github" });
+  await sandbox.renew();
+  expect(setTtl).toHaveBeenCalledWith(30);
 });
