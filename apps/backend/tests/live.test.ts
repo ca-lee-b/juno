@@ -68,3 +68,62 @@ it("sends a follow-up on the existing connection after a completed turn and rele
     server.close();
   }
 });
+
+it("allows an explicit follow-up after losing the initial send acknowledgment", async () => {
+  const server = listenForEngines(0);
+  await once(server, "listening");
+  const endpoint = `ws://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const sends: string[] = [];
+  let uncertain = false;
+  let settled = false;
+  const tasks = {
+    liveLost: vi.fn(),
+    waiting: vi.fn(),
+    reply: vi.fn(async (_: string, body: string) => {
+      uncertain ||= body.includes("unconfirmed");
+    }),
+    inbox: async () => ({ settling: settled, id: uncertain ? "1" : null, body: "Try again" }),
+  };
+  const launch: Sandbox["executeCommand"] = async (_cmd, _cwd, env) => {
+    function connect() {
+      const ws = new WebSocket(endpoint, {
+        headers: { authorization: `Bearer ${env?.TOWLINE_TOKEN}` },
+      });
+      ws.on("message", (raw) => {
+        const { id, op, text } = JSON.parse(raw.toString());
+        if (op === "send") {
+          sends.push(text);
+          if (sends.length === 1) {
+            ws.once("close", connect);
+            ws.terminate();
+            return;
+          }
+          settled = true;
+        }
+        ws.send(JSON.stringify({ id, result: null }));
+      });
+    }
+    connect();
+    return { result: "", exitCode: 0 };
+  };
+  try {
+    await runLive(
+      { executeCommand: launch, uploadFile: vi.fn(), renew: vi.fn() },
+      {
+        ENGINE_ENDPOINT: endpoint,
+        OPENAI_API_KEY: "test",
+        GITHUB_TOKEN: "github",
+        OPENAI_CODEX_MODEL: "test",
+        OPENAI_CODEX_MODEL_EFFORT: "medium",
+        AGENT_TIMEOUT_MS: 5000,
+      },
+      tasks,
+      "issue",
+      "Issue details",
+    );
+    expect(sends).toEqual(["Issue details", "Issue details\nTry again"]);
+  } finally {
+    for (const socket of server.clients) socket.terminate();
+    server.close();
+  }
+});

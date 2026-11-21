@@ -1,17 +1,12 @@
 import type { Logger } from "pino";
-import {
-  type Execute,
-  ExecutionError,
-  type IssueContext,
-  type RepositorySandbox,
-} from "@/execution/contracts";
-import type { TaskInput } from "@/tasks/input";
+import { type Execute, ExecutionError, type RepositorySandbox } from "@/execution/contracts";
+import type { createIssueReader } from "@/github/issues";
 import type { TaskRepository } from "@/tasks/repository";
 
 type Dependencies = {
   tasks: Pick<TaskRepository, "start" | "setSource" | "setSandbox" | "complete" | "fail"> &
     Partial<Pick<TaskRepository, "conversation" | "latestDraft">>;
-  readIssue: (input: TaskInput, sourceSha: string | null) => Promise<IssueContext>;
+  readIssue: ReturnType<typeof createIssueReader>;
   createSandbox: (taskId: string) => Promise<RepositorySandbox>;
   execute: Execute;
   logger: Logger;
@@ -35,9 +30,19 @@ export function createExecutionHandler({
     }
     let operation = "load context";
     let sandbox: RepositorySandbox | undefined;
+    async function release() {
+      if (!sandbox) return;
+      try {
+        await sandbox.dispose();
+      } catch {
+        await sandbox.dispose();
+      }
+      sandbox = undefined;
+      await tasks.setSandbox(taskId, null);
+    }
     try {
-      const issue = await readIssue(task.input, task.sourceSha);
-      issue.sessionBranch = `byo-pr-agent/${task.sessionId ?? task.id}`;
+      const issue = await readIssue(task.input, task.sourceSha, task.publication);
+      issue.sessionBranch = task.publication?.branch ?? `byo-pr-agent/${task.sessionId ?? task.id}`;
       const draft =
         task.sessionId && !task.publication?.prNumber
           ? await tasks.latestDraft?.(task.sessionId)
@@ -55,6 +60,8 @@ export function createExecutionHandler({
       await sandbox.clone(issue, draft?.result?.patch);
       operation = "run agent";
       const result = await execute(issue, sandbox);
+      operation = "release sandbox";
+      await release();
       await tasks.complete(taskId, result);
       logger.info({ taskId, model: result.model, usage: result.usage }, "execution completed");
     } catch (error) {
@@ -70,15 +77,19 @@ export function createExecutionHandler({
         "execution failed",
       );
       const liveFailure = operation === "run agent" && failure.code !== "SETUP_FAILED";
-      await tasks.fail(taskId, lastAttempt || liveFailure, failure.code);
+      const cleanupFailed = operation === "release sandbox";
+      await tasks.fail(
+        taskId,
+        lastAttempt || liveFailure || cleanupFailed,
+        cleanupFailed ? "CLEANUP_FAILED" : failure.code,
+      );
       // Do not persist provider errors: they can contain credentials or repository content.
       const exit = failure.exitCode === undefined ? "" : `, exit ${failure.exitCode}`;
       throw new Error(`Task execution failed during ${operation} (${failure.code}${exit})`);
     } finally {
-      if (sandbox) {
+      if (sandbox && operation !== "release sandbox") {
         try {
-          await sandbox.dispose();
-          await tasks.setSandbox(taskId, null);
+          await release();
         } catch {
           logger.error(
             { taskId, sandboxId: sandbox.id },

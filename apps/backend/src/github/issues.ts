@@ -1,10 +1,15 @@
 import type { IssueContext } from "@/execution/contracts";
 import { createGitHubClient } from "@/github/client";
 import type { TaskInput } from "@/tasks/input";
+import type { Publication } from "@/tasks/types";
 
 export function createIssueReader(token?: string) {
   const github = createGitHubClient({ token, timeout: 15000 });
-  return async (input: TaskInput, existingSha: string | null): Promise<IssueContext> => {
+  return async (
+    input: TaskInput,
+    existingSha: string | null,
+    publication?: Publication | null,
+  ): Promise<IssueContext> => {
     const params = {
       owner: input.owner,
       repo: input.repo,
@@ -16,6 +21,21 @@ export function createIssueReader(token?: string) {
       issue_number: input.issueNumber,
     });
     if (issue.pull_request) throw new Error("Expected an issue, received a pull request");
+    let base = repo.default_branch;
+    if (publication?.prNumber) {
+      const { data: pull } = await github.rest.pulls.get({
+        ...params,
+        pull_number: publication.prNumber,
+      });
+      if (
+        pull.state !== "open" ||
+        pull.head.ref !== publication.branch ||
+        pull.head.repo?.full_name.toLowerCase() !== `${input.owner}/${input.repo}`.toLowerCase()
+      )
+        throw new Error("Session pull request has changed");
+      existingSha = pull.head.sha;
+      base = pull.base.ref;
+    }
     const sha =
       existingSha ??
       (await github.rest.repos.getCommit({ ...params, ref: repo.default_branch })).data.sha;
@@ -23,7 +43,7 @@ export function createIssueReader(token?: string) {
     return {
       ...input,
       private: repo.private,
-      branch: repo.default_branch,
+      branch: base,
       title: issue.title,
       body: (issue.body ?? "").slice(0, 20000),
       sha,

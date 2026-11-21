@@ -42,8 +42,19 @@ describe.skipIf(!url)("Postgres task persistence", () => {
     await tasks.published(first.task.id);
     expect(await tasks.pending()).not.toContainEqual({ taskId: first.task.id });
   });
+  it("opens one live thread for concurrent issue selections and remembers each request key", async () => {
+    const issue = { ...input, repo: randomUUID() };
+    const keys = [randomUUID(), randomUUID()] as const;
+    const [first, again] = await Promise.all(keys.map((key) => tasks.create(issue, key)));
+    expect(first?.task.id).toBe(again?.task.id);
+    expect(Number(first?.created) + Number(again?.created)).toBe(1);
+    if (!first) throw new Error("Missing session");
+    await tasks.settle(first.task.id);
+    expect((await tasks.create(issue, keys[1])).task.id).toBe(first.task.id);
+    expect((await tasks.create(issue, randomUUID())).task.id).not.toBe(first.task.id);
+  });
   it("routes idle and active messages to the original session and closes it idempotently", async () => {
-    const { task } = await tasks.create(input, randomUUID());
+    const { task } = await tasks.create({ ...input, repo: randomUUID() }, randomUUID());
     await tasks.start(task.id);
     await tasks.waiting(task.id, true);
     const key = randomUUID();
@@ -58,7 +69,7 @@ describe.skipIf(!url)("Postgres task persistence", () => {
     expect(await tasks.conversation(task.id)).toHaveLength(1);
   });
   it("preserves completed tasks on redelivery", async () => {
-    const { task } = await tasks.create(input, randomUUID());
+    const { task } = await tasks.create({ ...input, repo: randomUUID() }, randomUUID());
     await tasks.start(task.id);
     await tasks.setSource(task.id, "a".repeat(40), "main");
     await tasks.complete(task.id, {
@@ -111,7 +122,7 @@ describe.skipIf(!url)("Postgres task persistence", () => {
     ).toBe(second.task.id);
   });
   it("retries failed attempts and makes final failures terminal", async () => {
-    const { task } = await tasks.create(input, randomUUID());
+    const { task } = await tasks.create({ ...input, repo: randomUUID() }, randomUUID());
     await tasks.start(task.id);
     await tasks.fail(task.id, false);
     expect(await tasks.start(task.id)).toMatchObject({ status: "running", attempts: 2 });

@@ -71,8 +71,14 @@ export function TaskSession({
       {open && task.status === "running" && !task.waitingForMessage && !task.liveLost && (
         <p role="status">Codex is working…</p>
       )}
-      {task.status === "failed" && <p role="alert">Codex stopped ({task.errorCode}). </p>}
-      {settling && (
+      {task.status === "failed" && (
+        <p role="alert">
+          {task.errorCode === "CLEANUP_FAILED"
+            ? "Sandbox release failed. The provider lease will expire."
+            : `Codex stopped (${task.errorCode}).`}{" "}
+        </p>
+      )}
+      {settling && task.status !== "failed" && (
         <p role="status">{isTaskActive(task.status) ? "Settling session…" : "Session settled"}</p>
       )}
       {open && (

@@ -20,31 +20,20 @@ export class TaskRepository {
       owner: input.owner.toLowerCase(),
       repo: input.repo.toLowerCase(),
     };
-    const result = await this.db.query<Task>(
-      `
-      WITH inserted AS (
-        INSERT INTO tasks (id, idempotency_key, input) VALUES ($1, $2, $3::jsonb)
-        ON CONFLICT (idempotency_key) DO NOTHING RETURNING *
-      ), outbox AS (
-        INSERT INTO task_outbox (task_id) SELECT id FROM inserted
-      ) SELECT ${columns} FROM inserted AS tasks`,
-      [randomUUID(), key, JSON.stringify(normalized)],
+    const { rows } = await this.db.query<{ task_id: string; created: boolean }>(
+      "SELECT * FROM open_issue_session($1::jsonb,$2,$3)",
+      [JSON.stringify(normalized), key, randomUUID()],
     );
-    const inserted = result.rows[0];
-    if (inserted) return { task: inserted, created: true };
-    const existing = await this.db.query<Task>(
-      `SELECT ${columns} FROM tasks WHERE idempotency_key = $1`,
-      [key],
-    );
-    const task = existing.rows[0];
-    if (!task) throw new Error("Idempotent task disappeared");
+    const opened = rows[0];
+    const task = opened && (await this.get(opened.task_id));
+    if (!task || !opened) throw new Error("Session disappeared");
     if (
       task.input.owner !== normalized.owner ||
       task.input.repo !== normalized.repo ||
       task.input.issueNumber !== normalized.issueNumber
     )
       throw new IdempotencyConflict();
-    return { task, created: false };
+    return { task, created: opened.created };
   }
 
   async get(id: string) {
@@ -220,7 +209,7 @@ export class TaskRepository {
 
   async setSource(id: string, sha: string, branch: string, title?: string) {
     await this.db.query(
-      "UPDATE tasks SET issue_title=COALESCE(issue_title,$4), source_sha = COALESCE(source_sha, $2), source_branch = COALESCE(source_branch, $3), updated_at = now() WHERE id = $1",
+      "UPDATE tasks SET issue_title=COALESCE(issue_title,$4), source_sha = $2, source_branch = $3, updated_at = now() WHERE id = $1",
       [id, sha, branch, title ?? null],
     );
   }
@@ -242,7 +231,7 @@ export class TaskRepository {
 
   async fail(id: string, terminal: boolean, code = "EXECUTION_FAILED") {
     await this.db.query(
-      `UPDATE tasks SET status = CASE WHEN settle_requested THEN 'completed' ELSE $2 END, error_code = CASE WHEN settle_requested THEN NULL ELSE $3 END, updated_at = now()
+      `UPDATE tasks SET status = CASE WHEN settle_requested AND $3 <> 'CLEANUP_FAILED' THEN 'completed' ELSE $2 END, error_code = CASE WHEN settle_requested AND $3 <> 'CLEANUP_FAILED' THEN NULL ELSE $3 END, updated_at = now()
       WHERE id = $1 AND status IN ('queued', 'running')`,
       [id, terminal ? "failed" : "queued", code],
     );

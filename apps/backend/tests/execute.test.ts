@@ -74,7 +74,7 @@ describe("execution lifecycle", () => {
     await handle("task-1", false);
     expect(tasks.complete).toHaveBeenCalledOnce();
     expect(tasks.complete).toHaveBeenCalledWith("task-1", result);
-    expect(tasks.complete.mock.invocationCallOrder[0]).toBeLessThan(
+    expect(tasks.complete.mock.invocationCallOrder[0]).toBeGreaterThan(
       sandbox.dispose.mock.invocationCallOrder[0] ?? Infinity,
     );
     expect(sandbox.dispose).toHaveBeenCalledOnce();
@@ -135,9 +135,10 @@ describe("execution lifecycle", () => {
   it("does not rerun successful model work when cleanup fails", async () => {
     const { handle, tasks, sandbox } = setup();
     sandbox.dispose.mockRejectedValue(new Error("cleanup unavailable"));
-    await handle("task-1", false);
-    expect(tasks.complete).toHaveBeenCalledOnce();
-    expect(tasks.fail).not.toHaveBeenCalled();
+    await expect(handle("task-1", false)).rejects.toThrow("release sandbox");
+    expect(sandbox.dispose).toHaveBeenCalledTimes(2);
+    expect(tasks.fail).toHaveBeenCalledWith("task-1", true, "CLEANUP_FAILED");
+    expect(tasks.complete).not.toHaveBeenCalled();
     expect(tasks.setSandbox).not.toHaveBeenCalledWith("task-1", null);
   });
 });

@@ -49,6 +49,7 @@ type Event = {
     };
     item?: { type: string; text: string };
     questions?: Question[];
+    requestId?: number;
   };
 };
 
@@ -74,6 +75,7 @@ export async function runLive(
     `${dir}/towline`,
   );
   let lastUser = "0";
+  let interrupting = false;
   let deadline = Date.now() + config.AGENT_TIMEOUT_MS;
   const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
   const settings = [
@@ -96,6 +98,7 @@ export async function runLive(
   let question:
     | { requestId: number; remaining: Question[]; answers: Record<string, { answers: string[] }> }
     | undefined;
+  let answering: { requestId: number; messageId: string } | undefined;
   let ack: { id: string; resolve: (error?: string) => void } | undefined;
   let stored = Promise.resolve();
   const save = (operation: () => Promise<void>) => {
@@ -185,11 +188,23 @@ export async function runLive(
           else failed = true;
         }
         if (e.method === "turn/started") {
+          interrupting = false;
           turn = e.params.turn?.id;
           deadline = Date.now() + config.AGENT_TIMEOUT_MS;
           save(() => tasks.waiting(id, false));
         }
+        if (
+          e.method === "serverRequest/resolved" &&
+          answering &&
+          e.params.requestId === answering.requestId
+        ) {
+          lastUser = answering.messageId;
+          if (question?.requestId === answering.requestId) question = undefined;
+          answering = undefined;
+        }
         if (e.method === "turn/completed") {
+          if (answering) lastUser = answering.messageId;
+          answering = undefined;
           turn = null;
           deadline = Infinity;
           question = undefined;
@@ -241,50 +256,75 @@ export async function runLive(
       60,
     );
     if (launched.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", launched.exitCode);
-    let nextRenewal = Date.now() + 60000;
+    let lastRenewed = Date.now();
+    let nextRenewal = lastRenewed + 60000;
     while (!failed) {
       const next = await tasks.inbox(id, lastUser);
       if (next.settling) break;
       if (Date.now() >= nextRenewal) {
-        const alive = await sandbox.executeCommand(
-          `kill -0 "$(cat ${dir}/towline.pid)"`,
-          "/tmp",
-          undefined,
-          10,
-        );
-        if (alive.exitCode !== 0) throw new ExecutionError("EXECUTION_FAILED");
-        await sandbox.renew();
-        nextRenewal = Date.now() + 60000;
+        try {
+          if (!ready) {
+            const alive = await sandbox.executeCommand(
+              `kill -0 "$(cat ${dir}/towline.pid)"`,
+              "/tmp",
+              undefined,
+              10,
+            );
+            if (alive.exitCode !== 0) throw new ExecutionError("EXECUTION_FAILED");
+          }
+          await sandbox.renew();
+          lastRenewed = Date.now();
+          nextRenewal = lastRenewed + 60000;
+        } catch (error) {
+          if (error instanceof ExecutionError || Date.now() - lastRenewed >= 29 * 60000)
+            throw error;
+          nextRenewal = Date.now() + 10000;
+        }
       }
       if (Date.now() > deadline) {
-        if (!ready || !turn) throw new ExecutionError("EXECUTION_TIMEOUT");
+        if (!ready || !turn || interrupting) throw new ExecutionError("EXECUTION_TIMEOUT");
+        interrupting = true;
+        deadline = Date.now() + 15000;
         const interrupted = await request({ op: "interrupt", turnId: turn });
         if (interrupted && interrupted !== "turn is not active")
           throw new ExecutionError("EXECUTION_TIMEOUT");
-        deadline = Infinity;
       }
       if (ready && !started) {
         started = true;
         const error = await request({ op: "send", text: prompt });
-        if (error && error !== "disconnected") throw new ExecutionError("EXECUTION_FAILED");
-      } else if (ready && turn !== undefined && next.id && next.body) {
+        if (error === "disconnected") {
+          log(
+            "Initial request delivery is unconfirmed. If no reply appears after reconnection, send a message to continue.",
+          );
+          if (turn === undefined) deadline = Infinity;
+        } else if (error) throw new ExecutionError("EXECUTION_FAILED");
+      } else if (ready && next.id && next.body) {
         let error: string | undefined;
         if (question) {
           const q = question.remaining.shift();
           if (q) question.answers[q.id] = { answers: [next.body] };
           if (question.remaining[0]) show(question.remaining[0]);
           else {
+            const pending = question;
+            answering = { requestId: pending.requestId, messageId: next.id };
             error = await request({
               op: "respond",
               requestId: question.requestId,
               result: { answers: question.answers },
             });
-            question = undefined;
-            deadline = Date.now() + config.AGENT_TIMEOUT_MS;
+            // A request ID can only be answered once. Retry that same response
+            // after reconnect, even if the first acknowledgement was lost.
+            if (error === "disconnected") continue;
+            if (error === "unknown request ID") error = undefined;
+            if (question === pending) question = undefined;
+            answering = undefined;
+            if (turn && !question) deadline = Date.now() + config.AGENT_TIMEOUT_MS;
           }
         } else {
           error = await request(
-            turn ? { op: "steer", turnId: turn, text: next.body } : { op: "send", text: next.body },
+            turn
+              ? { op: "steer", turnId: turn, text: next.body }
+              : { op: "send", text: turn === undefined ? `${prompt}\n${next.body}` : next.body },
           );
         }
         if (!error) lastUser = next.id;

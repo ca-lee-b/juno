@@ -190,3 +190,17 @@ it("preserves Daytona isolation, lifetime, and exact-commit public cloning", asy
     sandbox.clone("https://github.com/owner/repo.git", "/tmp/other", "b".repeat(40)),
   ).rejects.toMatchObject({ code: "SETUP_FAILED", exitCode: 128 });
 });
+
+it("mounts a configured Daytona GitHub secret and extends the existing sandbox lease", async () => {
+  const setTtl = vi.fn();
+  mocks.create.mockResolvedValueOnce({
+    id: "live",
+    setTtl,
+    process: { executeCommand: mocks.command },
+  });
+  const provider = createDaytonaProvider({ ...config, DAYTONA_GITHUB_SECRET: "juno-github" });
+  const sandbox = await provider("issue");
+  expect(mocks.create.mock.calls[0]?.[0].secrets).toEqual({ GH_TOKEN: "juno-github" });
+  await sandbox.renew();
+  expect(setTtl).toHaveBeenCalledWith(30);
+});

@@ -6,11 +6,13 @@ Send `Authorization: Bearer YOUR_API_TOKEN` with each request.
 
 List tasks with authenticated `GET /v1/tasks` (`limit` 1–100, `offset`, optional `status`, and repository/issue `search`). The response includes task metadata, change counts, status counts for the search, and `hasMore`; full patches stay on individual task responses.
 
+Creating a task for an issue with an open session returns that session (HTTP 200). A new selection after settlement starts a fresh session.
+
 Read the issue conversation with `GET /v1/tasks/:id/session`. Send
 `{ "messageId": "<uuid>", "body": "<text>" }` to `POST /v1/tasks/:id/session`.
 Reuse the same message ID on retry. The worker sends idle follow-ups, steering messages,
 and answers to pending questions to the same Codex process. Git and gh are available
-inside the checkout. Codex commits and opens or updates the draft PR as part of the conversation.
+inside the checkout. If a send loses its acknowledgment, the thread reports uncertain delivery. Check the reply before resending. Answers to tool questions can retry using the original request ID. Codex commits and opens or updates the draft PR as part of the conversation.
 
 `POST /v1/tasks/:id/settle` returns 202, closes the composer, and requests sandbox deletion.
 Settle is idempotent. Later messages receive 409. You can read the transcript after settlement.
