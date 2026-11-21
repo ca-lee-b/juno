@@ -78,7 +78,7 @@ describe("execution lifecycle", () => {
       sandbox.dispose.mock.invocationCallOrder[0] ?? Infinity,
     );
     expect(sandbox.dispose).toHaveBeenCalledOnce();
-    expect(tasks.setSandbox).toHaveBeenLastCalledWith("task-1", null);
+    expect(tasks.setSandbox).toHaveBeenCalledExactlyOnceWith("task-1", "sandbox-1");
   });
   it("restores the unpublished patch and prior answers before revising", async () => {
     const { task, tasks, readIssue, createSandbox, sandbox, execute, result } = setup();
@@ -99,6 +99,13 @@ describe("execution lifecycle", () => {
       draft.result.patch,
     );
     expect(tasks.complete).toHaveBeenCalledExactlyOnceWith(task.id, result);
+  });
+  it("keeps a result write failure terminal after releasing a live sandbox", async () => {
+    const { handle, tasks, sandbox } = setup();
+    tasks.complete.mockRejectedValue(new Error("database unavailable"));
+    await expect(handle("task-1", false)).rejects.toThrow("save result");
+    expect(tasks.fail).toHaveBeenCalledWith("task-1", true, expect.any(String));
+    expect(sandbox.dispose).toHaveBeenCalledOnce();
   });
   it("skips redelivery of terminal tasks", async () => {
     const { handle, tasks, createSandbox } = setup();

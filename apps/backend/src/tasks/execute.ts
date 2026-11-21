@@ -38,7 +38,6 @@ export function createExecutionHandler({
         await sandbox.dispose();
       }
       sandbox = undefined;
-      await tasks.setSandbox(taskId, null);
     }
     try {
       const issue = await readIssue(task.input, task.sourceSha, task.publication);
@@ -81,7 +80,10 @@ export function createExecutionHandler({
       let cleanupFailed = operation === "release sandbox";
       if (!cleanupFailed) {
         try {
-          await release();
+          if (sandbox) {
+            await release();
+            await tasks.setSandbox(taskId, null);
+          }
         } catch {
           cleanupFailed = true;
           logger.error(
@@ -92,9 +94,10 @@ export function createExecutionHandler({
       }
       await tasks.fail(
         taskId,
-        lastAttempt || liveFailure || cleanupFailed,
+        lastAttempt || liveFailure || cleanupFailed || operation === "save result",
         cleanupFailed ? "CLEANUP_FAILED" : failure.code,
       );
+      if (operation === "save result") await tasks.setSandbox(taskId, null);
       // Do not persist provider errors: they can contain credentials or repository content.
       const exit = failure.exitCode === undefined ? "" : `, exit ${failure.exitCode}`;
       throw new Error(`Task execution failed during ${operation} (${failure.code}${exit})`);

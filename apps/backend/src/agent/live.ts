@@ -291,6 +291,11 @@ export async function runLive(
         if (interrupted && interrupted !== "turn is not active")
           throw new ExecutionError("EXECUTION_TIMEOUT");
       }
+      if (interruptDeadline !== Infinity) {
+        if (Date.now() >= interruptDeadline) throw new ExecutionError("EXECUTION_TIMEOUT");
+        await delay(Math.min(350, interruptDeadline - Date.now()));
+        continue;
+      }
       if (ready && !started) {
         started = true;
         const error = await request({ op: "send", text: prompt });

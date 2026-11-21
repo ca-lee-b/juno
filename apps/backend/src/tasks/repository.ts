@@ -216,7 +216,7 @@ export class TaskRepository {
 
   async complete(id: string, result: Pick<Task, "result" | "model" | "promptVersion" | "usage">) {
     await this.db.query(
-      `UPDATE tasks SET status = 'completed', result = $2::jsonb,
+      `UPDATE tasks SET status = 'completed', sandbox_id = NULL, result = $2::jsonb,
       model = $3, prompt_version = $4, usage = $5::jsonb, error_code = NULL, updated_at = now()
       WHERE id = $1 AND status = 'running'`,
       [
