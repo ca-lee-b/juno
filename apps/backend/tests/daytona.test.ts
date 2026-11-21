@@ -7,10 +7,10 @@ import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
 vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
 const tasks = {
-  messages: vi.fn().mockResolvedValue([]),
+  inbox: vi.fn(),
   reply: vi.fn(),
   liveLost: vi.fn(),
-  closeMessages: vi.fn(),
+  waiting: vi.fn(),
 };
 const createSandboxProvider = (
   config: Parameters<typeof createRepositorySandboxProvider>[0] &
@@ -35,6 +35,7 @@ vi.mock("@daytona/sdk", () => ({
 const config = readWorkerConfig({
   DATABASE_URL: "postgres://localhost/db",
   REDIS_URL: "redis://localhost",
+  GITHUB_TOKEN: "github-test",
   ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "secret",
   DAYTONA_API_KEY: "private",
@@ -55,7 +56,7 @@ beforeEach(() => {
 });
 it("executes once and captures artifacts without placing keys in command text", async () => {
   const sandbox = await createSandboxProvider(config)("task");
-  expect(await sandbox.execute("issue", "a".repeat(40))).toEqual({
+  expect(await sandbox.execute("issue")).toEqual({
     summary: "done",
     patch: "",
     usage: null,
@@ -64,7 +65,7 @@ it("executes once and captures artifacts without placing keys in command text", 
 });
 it("installs only the two built-in skills before starting Codex", async () => {
   const sandbox = await createSandboxProvider(config)("task");
-  await sandbox.execute("issue", "a".repeat(40));
+  await sandbox.execute("issue");
   const commands = mocks.command.mock.calls;
   expect(commands[0]?.[0]).toContain("npm install");
   expect(commands[1]?.[0]).toContain("--skill 'codebase-design'");
@@ -84,7 +85,7 @@ it.each([1, 2])("does not start Codex when built-in skill %s fails", async (inde
   }
   mocks.command.mockResolvedValueOnce({ exitCode: 1, result: "skill install failed" });
   const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
+  await expect(sandbox.execute("issue")).rejects.toMatchObject({
     code: "SETUP_FAILED",
     exitCode: 1,
   });
@@ -102,8 +103,8 @@ it("destroys the sandbox before surfacing a transport timeout", async () => {
   );
   const sandbox = await createSandboxProvider(config)("task");
   let settled = false;
-  const execution = sandbox.execute("issue", "a".repeat(40));
-  const rejection = expect(execution).rejects.toThrow("EXECUTION_TIMEOUT");
+  const execution = sandbox.execute("issue");
+  const rejection = expect(execution).rejects.toThrow("EXECUTION_FAILED");
   void execution.then(
     () => {
       settled = true;
@@ -120,12 +121,6 @@ it("destroys the sandbox before surfacing a transport timeout", async () => {
   await sandbox.dispose();
   expect(mocks.delete).toHaveBeenCalledOnce();
 });
-it("classifies artifact download failures", async () => {
-  mocks.download.mockRejectedValue(new Error("missing"));
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");
-});
-
 it.each([true, false])(
   "uploads the pinned Git bundle without exposing the token (private=%s)",
   async (privateRepo) => {
@@ -149,28 +144,10 @@ it.each([true, false])(
   },
 );
 
-it("rejects oversized patches before downloading artifacts", async () => {
-  mocks.command.mockImplementation(async (command: string) => ({
-    exitCode: 0,
-    result: command.includes("wc -c") ? String(5 * 1024 * 1024 + 1) : "0",
-  }));
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("PATCH_TOO_LARGE");
-  expect(mocks.download).not.toHaveBeenCalled();
-});
-
-it("rejects missing output artifacts", async () => {
-  mocks.download.mockImplementation(async (path: string) =>
-    path.endsWith("changes.patch") ? undefined : Buffer.from("output"),
-  );
-  const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toThrow("OUTPUT_FAILED");
-});
-
 it("does not execute Codex when installation fails", async () => {
   mocks.command.mockResolvedValueOnce({ exitCode: 1, result: "installation failed" });
   const sandbox = await createSandboxProvider(config)("task");
-  await expect(sandbox.execute("issue", "a".repeat(40))).rejects.toMatchObject({
+  await expect(sandbox.execute("issue")).rejects.toMatchObject({
     code: "SETUP_FAILED",
     exitCode: 1,
   });
@@ -195,7 +172,7 @@ it("preserves Daytona isolation, lifetime, and exact-commit public cloning", asy
       language: "typescript",
       public: false,
       ephemeral: true,
-      autoStopInterval: 30,
+      autoStopInterval: 0,
       ttlMinutes: 30,
       labels: { project: "byo-pr-agent", taskId: "task-id" },
     },

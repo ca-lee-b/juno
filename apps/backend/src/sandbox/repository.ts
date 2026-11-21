@@ -10,6 +10,7 @@ type RepositoryConfig = Pick<
   WorkerConfig,
   | "ENGINE_ENDPOINT"
   | "GITHUB_TOKEN"
+  | "DAYTONA_GITHUB_SECRET"
   | "OPENAI_API_KEY"
   | "OPENAI_CODEX_MODEL"
   | "OPENAI_CODEX_MODEL_EFFORT"
@@ -44,6 +45,15 @@ export function createRepositorySandboxProvider(
             "/tmp/repository",
             issue.sha,
           );
+        if (issue.sessionBranch) {
+          const branch = await sandbox.executeCommand(
+            `git switch -c ${quote(issue.sessionBranch)}`,
+            "/tmp/repository",
+            undefined,
+            30,
+          );
+          if (branch.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", branch.exitCode);
+        }
         if (patch) {
           await sandbox.uploadFile(Buffer.from(patch), "/tmp/draft.patch");
           const applied = await sandbox.executeCommand(
@@ -55,8 +65,8 @@ export function createRepositorySandboxProvider(
           if (applied.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", applied.exitCode);
         }
       },
-      execute: (prompt, sha) =>
-        runCodex(sandbox, config, prompt, sha, () => sandbox.dispose(), { tasks, id: taskId }),
+      execute: (prompt) =>
+        runCodex(sandbox, config, prompt, () => sandbox.dispose(), { tasks, id: taskId }),
       dispose: () => sandbox.dispose(),
     };
   };

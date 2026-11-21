@@ -25,8 +25,10 @@ export type Publication = {
   error: string | null;
 };
 export type Task = {
-  liveLost?:boolean;
-  issueTitle?:string|null;
+  settleRequested?: boolean;
+  waitingForMessage?: boolean;
+  liveLost?: boolean;
+  issueTitle?: string | null;
   sessionId?: string | null;
   instruction?: string | null;
   id: string;

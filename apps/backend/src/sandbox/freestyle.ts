@@ -10,6 +10,7 @@ export function createFreestyleProvider(
 ): SandboxProvider {
   const freestyle = new Freestyle({ apiKey: config.FREESTYLE_API_KEY });
   return async (taskId) => {
+    const createdAt = Date.now();
     const { vm, vmId } = await freestyle.vms.create({
       snapshotId: "freestyle/ubuntu-sm",
       ttlSeconds: 1800,
@@ -30,6 +31,9 @@ export function createFreestyleProvider(
     let disposed = false;
     return {
       id: vmId,
+      async renew() {
+        await vm.update({ ttlSeconds: Math.ceil((Date.now() - createdAt) / 1000) + 1800 });
+      },
       executeCommand,
       uploadFile: (data, path) => vm.fs.writeFile(path, data),
       downloadFile: async (path) => Buffer.from(await vm.fs.readFile(path)),

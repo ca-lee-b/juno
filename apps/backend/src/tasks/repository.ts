@@ -3,7 +3,7 @@ import type { Database } from "@/db/client";
 import type { TaskInput } from "@/tasks/input";
 import { IdempotencyConflict, type Task } from "@/tasks/types";
 
-const columns = `id, live_lost AS "liveLost", issue_title AS "issueTitle", session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
+const columns = `id, settle_requested AS "settleRequested", waiting_for_message AS "waitingForMessage", live_lost AS "liveLost", issue_title AS "issueTitle", session_id AS "sessionId", instruction, input, status, attempts, sandbox_id AS "sandboxId",
   source_sha AS "sourceSha", source_branch AS "sourceBranch", result, model, prompt_version AS "promptVersion", usage,
   error_code AS "errorCode", created_at AS "createdAt", updated_at AS "updatedAt",
   (SELECT jsonb_build_object(
@@ -77,7 +77,7 @@ export class TaskRepository {
           status: task.status,
           createdAt: task.createdAt,
           publication: task.publication,
-          changes: task.result
+          changes: task.result?.patch
             ? {
                 additions: lines.filter((line) => line.startsWith("+") && !line.startsWith("+++"))
                   .length,
@@ -102,7 +102,7 @@ export class TaskRepository {
         SELECT t.id::text,'user' AS role,instruction AS body,created_at FROM runs t WHERE instruction IS NOT NULL
         UNION ALL SELECT 'msg-'||m.id,m.role,m.body,m.created_at FROM task_messages m JOIN runs t ON t.id=m.task_id
         UNION ALL SELECT 'summary-'||id,'assistant',result->>'summary',updated_at FROM runs
-          WHERE result IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task_messages m WHERE m.task_id=runs.id AND m.role='assistant')
+          WHERE NULLIF(result->>'summary','') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM task_messages m WHERE m.task_id=runs.id AND m.role='assistant')
       ) transcript ORDER BY created_at,id`,
         [root, before ?? null],
       )
@@ -129,25 +129,43 @@ export class TaskRepository {
   }
 
   async send(root: string, body: string, key: string) {
-    return (
-      await this.db.query<{ id: string }>("SELECT send_session_message($1,$2,$3) AS id", [
+    const sent = (
+      await this.db.query<{ id: string | null }>("SELECT send_session_message($1,$2,$3) AS id", [
         root,
         key,
         body,
       ])
     ).rows[0];
+    return sent?.id ? { id: sent.id } : undefined;
   }
 
-  async closeMessages(id: string, delivered: number) {
-    return (
-      (
-        await this.db.query(
-          `UPDATE tasks SET accepting_messages=false WHERE id=$1 AND
-      user_message_count=$2 RETURNING id`,
-          [id, delivered],
-        )
-      ).rows.length > 0
+  async settle(root: string) {
+    await this.db.query(
+      `UPDATE tasks SET settle_requested=true,
+      status=CASE WHEN status='queued' THEN 'completed' ELSE status END
+      WHERE id=$1 OR session_id=$1`,
+      [root],
     );
+  }
+
+  async inbox(id: string, after: string) {
+    const result = await this.db.query<{
+      settling: boolean;
+      id: string | null;
+      body: string | null;
+    }>(
+      `
+      SELECT (t.settle_requested OR t.status <> 'running') AS settling, m.id, m.body FROM tasks t
+      LEFT JOIN LATERAL (SELECT id, body FROM task_messages WHERE task_id=t.id AND role='user'
+        AND id > $2 ORDER BY id LIMIT 1) m ON true WHERE t.id=$1`,
+      [id, after],
+    );
+    if (!result.rows[0]) throw new Error("Session unavailable");
+    return result.rows[0];
+  }
+
+  async waiting(id: string, waiting: boolean) {
+    await this.db.query("UPDATE tasks SET waiting_for_message=$2 WHERE id=$1", [id, waiting]);
   }
 
   async messages(id: string) {
@@ -159,10 +177,8 @@ export class TaskRepository {
     ).rows;
   }
 
-  async liveLost(id: string) {
-    await this.db.query("UPDATE tasks SET live_lost=true,accepting_messages=false WHERE id=$1", [
-      id,
-    ]);
+  async liveLost(id: string, lost = true) {
+    await this.db.query("UPDATE tasks SET live_lost=$2 WHERE id=$1", [id, lost]);
   }
 
   async reply(id: string, body: string) {
@@ -209,13 +225,9 @@ export class TaskRepository {
     );
   }
 
-  async complete(
-    id: string,
-    result: Pick<Task, "result" | "model" | "promptVersion" | "usage">,
-    staged = false,
-  ) {
+  async complete(id: string, result: Pick<Task, "result" | "model" | "promptVersion" | "usage">) {
     await this.db.query(
-      `UPDATE tasks SET status = $6, result = $2::jsonb,
+      `UPDATE tasks SET status = 'completed', result = $2::jsonb,
       model = $3, prompt_version = $4, usage = $5::jsonb, error_code = NULL, updated_at = now()
       WHERE id = $1 AND status = 'running'`,
       [
@@ -224,14 +236,13 @@ export class TaskRepository {
         result.model,
         result.promptVersion,
         JSON.stringify(result.usage),
-        staged ? "running" : "completed",
       ],
     );
   }
 
   async fail(id: string, terminal: boolean, code = "EXECUTION_FAILED") {
     await this.db.query(
-      `UPDATE tasks SET status = $2, error_code = $3, updated_at = now()
+      `UPDATE tasks SET status = CASE WHEN settle_requested THEN 'completed' ELSE $2 END, error_code = CASE WHEN settle_requested THEN NULL ELSE $3 END, updated_at = now()
       WHERE id = $1 AND status IN ('queued', 'running')`,
       [id, terminal ? "failed" : "queued", code],
     );

@@ -8,8 +8,7 @@ import assert from "node:assert/strict";
 const id = "11111111-1111-4111-8111-111111111111";
 const input = { owner: "example", repo: "project", issueNumber: 42 };
 let submissions = 0;
-let publishStatus = 201;
-let publications = 0;
+let settled = false;
 const mock = createServer(async (req, res) => {
   res.setHeader("Content-Type", "application/json");
   if (req.headers.authorization !== "Bearer fixture-token") {
@@ -32,25 +31,9 @@ const mock = createServer(async (req, res) => {
           nextPage: null,
         }),
       );
-  } else if (req.url === `/v1/tasks/${id}/draft-pr` && req.method === "POST") {
-    publications++;
-    res
-      .writeHead(publishStatus)
-      .end(
-        JSON.stringify(
-          publishStatus === 202
-            ? { status: "in_progress" }
-            : publishStatus === 409
-              ? { error: "BASE_DIVERGED" }
-              : {
-                  publication: {
-                    status: "published",
-                    prNumber: 7,
-                    prUrl: "https://github.com/example/project/pull/7",
-                  },
-                },
-        ),
-      );
+  } else if (req.url === `/v1/tasks/${id}/settle` && req.method === "POST") {
+    settled = true;
+    res.writeHead(202).end(JSON.stringify({ settling: true }));
   } else if (req.method === "POST") {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -90,7 +73,14 @@ const port = 31391;
 const origin = `http://127.0.0.1:${port}`;
 const app = spawn(
   process.execPath,
-  [require.resolve("next/dist/bin/next"), "start", "--hostname", "127.0.0.1", "--port", String(port)],
+  [
+    require.resolve("next/dist/bin/next"),
+    "start",
+    "--hostname",
+    "127.0.0.1",
+    "--port",
+    String(port),
+  ],
   {
     env: { ...process.env, AGENT_API_URL: `http://127.0.0.1:${mock.address().port}` },
     stdio: ["ignore", "pipe", "pipe"],
@@ -171,14 +161,14 @@ try {
   const task = await (await call(`/api/tasks/${id}`, { headers })).json();
   assert.equal(task.task.result.patch, "");
   assert.equal((await call("/api/tasks/not-a-uuid", { headers })).status, 400);
-  const draftPath = `/api/tasks/${id}/draft-pr`;
+  const settlePath = `/api/tasks/${id}/settle`;
   assert.equal(
-    (await call(draftPath, { method: "POST", headers: { Origin: origin } })).status,
+    (await call(settlePath, { method: "POST", headers: { Origin: origin } })).status,
     401,
   );
   assert.equal(
     (
-      await call(draftPath, {
+      await call(settlePath, {
         method: "POST",
         headers: { ...headers, Origin: "https://untrusted.example" },
       })
@@ -186,23 +176,15 @@ try {
     403,
   );
   assert.equal(
-    (await call("/api/tasks/not-a-uuid/draft-pr", { method: "POST", headers })).status,
+    (await call("/api/tasks/not-a-uuid/settle", { method: "POST", headers })).status,
     400,
   );
-  assert.equal(publications, 0);
-  for (const status of [201, 200, 202, 409]) {
-    publishStatus = status;
-    const response = await call(draftPath, { method: "POST", headers });
-    assert.equal(response.status, status);
-    const body = await response.json();
-    if (status === 202) assert.equal(body.status, "in_progress");
-    else if (status === 409) assert.equal(body.error, "BASE_DIVERGED");
-    else assert.equal(body.publication.prNumber, 7);
-  }
-  assert.equal(publications, 4);
+  assert.equal(settled, false);
+  assert.equal((await call(settlePath, { method: "POST", headers })).status, 202);
+  assert.equal(settled, true);
   assert.equal((await call("/api/connection", { method: "DELETE", headers })).status, 200);
   console.log(
-    "PASS: page, authentication, origin protection, input validation, task creation, result retrieval, empty patch, draft PR publishing and errors, disconnect",
+    "PASS: page, authentication, origin protection, input validation, task creation, result retrieval, empty patch, session settlement, disconnect",
   );
 } finally {
   app.kill("SIGTERM");

@@ -3,6 +3,7 @@
  */
 export interface Sandbox {
   id: string;
+  renew(): Promise<void>;
   /** Resolve on process exit (including nonzero); reject on transport failure. Timeout is in seconds. */
   executeCommand(
     command: string,

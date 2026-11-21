@@ -6,7 +6,7 @@
 
 Juno is a web app and backend service that turns GitHub issues into draft pull requests.
 It uses OpenAI and a [supported sandbox provider](docs/supported-providers.md) to make code changes.
-Review the changes before you create a draft pull request.
+Open an issue to start a Codex thread. Codex opens a draft PR and pushes requested changes to the same branch. Select **Settle** to release the sandbox.
 
 This project is an example for learning. Use it only with trusted repositories.
 It uses a GitHub personal access token. The Next.js web app connects to the API through authenticated server routes.
@@ -25,16 +25,14 @@ cp apps/web/.env.example apps/web/.env.local
 Set these values in `apps/backend/.env`:
 
 - `API_TOKEN`: a random token with at least 32 characters.
-- `OPENAI_API_KEY`: a dedicated OpenAI project key, used by Codex and the writeup stage.
+- `OPENAI_API_KEY`: a dedicated OpenAI project key for Codex.
 - `OPENAI_CODEX_MODEL` / `OPENAI_CODEX_MODEL_EFFORT`: coding model and effort (defaults: `gpt-6-astra` / `medium`).
-- `OPENAI_WRITEUP_MODEL` / `OPENAI_WRITEUP_MODEL_EFFORT`: operator summary and GitHub PR model and effort (defaults: `gpt-6-luna` / `high`).
 
 - `SANDBOX_PROVIDER` and the selected provider’s API key: see [supported sandbox providers](docs/supported-providers.md) for values, default resources, and setup notes.
 - `GITHUB_TOKEN`: a fine-grained personal access token for trusted repositories.
 
 The worker uploads a pinned Linux amd64 Towline binary alongside Codex. Set `ENGINE_ENDPOINT` to a public WSS endpoint routed to this worker’s `ENGINE_PORT` (default 3010). For local development, tunnel that port. Each execution gets its own bearer token. The worker sends the prompt and interprets the engine’s sequenced Codex events as messages, questions, final text, and usage. The worker requires this endpoint at startup. The browser can disconnect while the worker keeps consuming events. If the engine transport drops, the stock engine can dial back and the worker can read the missing events from its journal.
 
-The writeup stage uses the OpenAI Responses API with the issue context, coding report, and patch. Each stage is bounded by `AGENT_TIMEOUT_MS`. Effort accepts `minimal`, `low`, `medium`, `high`, or `xhigh`; select a value supported by your chosen model. Replace the old `OPENAI_MODEL` variable with `OPENAI_CODEX_MODEL` when upgrading. Task `model` and `usage` continue to describe the coding stage only.
 
 Give the GitHub token **Contents: write**, **Pull requests: write**, and **Issues: read** permissions to create draft pull requests.
 Use the same token for the API and worker.
@@ -99,27 +97,12 @@ curl http://localhost:3000/v1/tasks \
   -d '{"owner":"OWNER","repo":"REPO","issueNumber":123}'
 ```
 
-## Review changes and create a draft pull request
+## Continue or settle a session
 
-Use the returned task ID to check the task.
-
-```sh
-curl http://localhost:3000/v1/tasks/TASK_ID \
-  -H 'Authorization: Bearer YOUR_API_TOKEN'
-```
-
-When the status is `completed`, review `result.summary` and `result.patch`.
-This status confirms that the changes were saved. It does not confirm that tests passed.
-
-After review, create the draft pull request.
-
-```sh
-curl -X POST http://localhost:3000/v1/tasks/TASK_ID/draft-pr \
-  -H 'Authorization: Bearer YOUR_API_TOKEN'
-```
-
-This action does not run automatically. It does not run tests or merge changes.
-See the [API reference](docs/api.md) for response codes and recovery steps.
+Open the task in the web app to read the conversation, answer questions, and ask for changes.
+The same Codex process and checkout stay available between replies, including while the browser is closed.
+The agent includes the draft PR link in its reply. **Settle** ends the session, including any work in progress.
+The transcript and GitHub PR remain available. The [API reference](docs/api.md) covers message delivery and settlement.
 
 ## Reset an older local database
 
@@ -155,7 +138,7 @@ Anyone with the API token can access the configured GitHub data and submit tasks
 
 Codex and repository commands run unattended in the selected sandbox.
 They have network access and can read the OpenAI key.
-GitHub, database, Redis, and sandbox provider credentials stay in the backend.
+The worker supplies its configured GitHub token to Git and the GitHub CLI through the provider command environment. For Daytona, you can mount the same credential as a host-restricted organization secret by setting `DAYTONA_GITHUB_SECRET` to its name. Allow `api.github.com` and `github.com`. Database, Redis, and provider management credentials stay on the server.
 
 Codex CLI is pinned to version 0.166.0.
 Every sandbox installs `codebase-design` (mattpocock/skills) and `code-simplifier`
@@ -164,7 +147,7 @@ and both source revisions are pinned in `apps/backend/src/agent/runtime.ts`. Ski
 globally inside the sandbox, outside the repository and generated patch. If either
 installation fails, the task fails setup instead of running without its built-in skills.
 The default execution limit is twenty minutes (`AGENT_TIMEOUT_MS=1200000`).
-The sandbox lifetime is thirty minutes. Existing `.env` values override the default execution limit.
+The worker renews a thirty-minute sandbox lease while the session is open. An idle thread uses one worker concurrency slot and may incur sandbox charges. Provider plan limits still apply.
 
 After an upgrade, apply migrations and restart the API and worker.
-Private submodules, Git LFS downloads, and later authenticated Git fetches in the sandbox are not supported.
+The initial checkout omits submodule and Git LFS content.

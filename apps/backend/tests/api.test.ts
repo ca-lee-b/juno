@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { createApp } from "@/api/app";
 import { createLogger } from "@/logger";
-import type { createPublisher } from "@/tasks/publish";
 import { IdempotencyConflict, type Task } from "@/tasks/types";
 
 const token = "a-test-token-that-is-at-least-32-characters";
@@ -25,10 +24,7 @@ const task: Task = {
   updatedAt: new Date(),
 };
 
-function setup(
-  github?: import("@/github/catalog").GitHubCatalog,
-  publish?: ReturnType<typeof createPublisher>,
-) {
+function setup(github?: import("@/github/catalog").GitHubCatalog) {
   const tasks = {
     create: vi.fn().mockResolvedValue({ task, created: true }),
     get: vi.fn().mockResolvedValue(task),
@@ -41,7 +37,6 @@ function setup(
     ready,
     apiToken: token,
     logger: createLogger("silent"),
-    ...(publish ? { publish } : {}),
   });
   const post = (body: unknown, headers: Record<string, string> = {}) =>
     app.request("/v1/tasks", {
@@ -168,61 +163,5 @@ describe("GitHub catalog API", () => {
     expect(failed.status).toBe(502);
     expect(await failed.text()).not.toContain("secret-token");
     expect((await setup().app.request("/v1/github/repositories", { headers })).status).toBe(503);
-  });
-});
-
-describe("draft PR API", () => {
-  const headers = { Authorization: `Bearer ${token}` };
-  const path = `/v1/tasks/${task.id}/draft-pr`;
-  it("requires auth and a valid task before calling the publisher", async () => {
-    const publish = vi.fn<ReturnType<typeof createPublisher>>();
-    const { app, tasks } = setup(undefined, publish);
-    expect((await app.request(path, { method: "POST" })).status).toBe(401);
-    expect((await app.request("/v1/tasks/bad/draft-pr", { method: "POST", headers })).status).toBe(
-      400,
-    );
-    tasks.get.mockResolvedValue(undefined);
-    expect((await app.request(path, { method: "POST", headers })).status).toBe(404);
-    expect(publish).not.toHaveBeenCalled();
-  });
-  it("returns typed progress and errors without leaking upstream data", async () => {
-    const publish = vi
-      .fn<ReturnType<typeof createPublisher>>()
-      .mockResolvedValue({ httpStatus: 202, status: "in_progress" });
-    const { app } = setup(undefined, publish);
-    const response = await app.request(path, { method: "POST", headers });
-    expect(response.status).toBe(202);
-    expect(response.headers.get("Retry-After")).toBe("2");
-    expect(await response.json()).toEqual({ status: "in_progress" });
-    publish.mockResolvedValueOnce({ httpStatus: 409, error: "TASK_NOT_PUBLISHABLE" });
-    expect((await app.request(path, { method: "POST", headers })).status).toBe(409);
-    publish.mockResolvedValueOnce({ httpStatus: 503, error: "GITHUB_NOT_CONFIGURED" });
-    expect((await app.request(path, { method: "POST", headers })).status).toBe(503);
-    publish.mockRejectedValueOnce(new Error("secret upstream token"));
-    const failed = await app.request(path, { method: "POST", headers });
-    expect(failed.status).toBe(500);
-    expect(await failed.text()).not.toContain("secret");
-  });
-  it("returns the same saved URL on repeats without requiring an idempotency header", async () => {
-    const publication = {
-      status: "published" as const,
-      branch: "branch",
-      baseBranch: "main",
-      commitSha: "a".repeat(40),
-      branchUrl: "branch-url",
-      prNumber: 1,
-      prUrl: "https://github.com/owner/repo/pull/1",
-      error: null,
-    };
-    const publish = vi
-      .fn<ReturnType<typeof createPublisher>>()
-      .mockResolvedValueOnce({ httpStatus: 201, publication })
-      .mockResolvedValue({ httpStatus: 200, publication });
-    const { app } = setup(undefined, publish);
-    for (const status of [201, 200]) {
-      const response = await app.request(path, { method: "POST", headers });
-      expect(response.status).toBe(status);
-      expect(await response.json()).toEqual({ publication });
-    }
   });
 });

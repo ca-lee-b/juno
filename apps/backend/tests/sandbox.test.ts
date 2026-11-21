@@ -6,12 +6,13 @@ import { createRepositorySandboxProvider } from "@/sandbox/repository";
 
 vi.mock("@/agent/live", () => ({ runLive: vi.fn() }));
 const tasks = {
-  messages: vi.fn().mockResolvedValue([]),
+  inbox: vi.fn(),
   reply: vi.fn(),
   liveLost: vi.fn(),
-  closeMessages: vi.fn(),
+  waiting: vi.fn(),
 };
 const config = {
+  GITHUB_TOKEN: "github-test",
   ENGINE_ENDPOINT: "wss://worker.example",
   OPENAI_API_KEY: "openai-secret",
   OPENAI_CODEX_MODEL: "test",
@@ -31,6 +32,7 @@ function setup() {
   vi.mocked(runLive).mockResolvedValue({ summary: "done", usage: null });
   const environment = {
     id: "other-provider-id",
+    renew: vi.fn(),
     clone: vi.fn<Sandbox["clone"]>().mockResolvedValue(undefined),
     executeCommand: vi
       .fn<Sandbox["executeCommand"]>()
@@ -60,7 +62,7 @@ it("runs repository setup, Codex, artifact collection and cleanup with an indepe
     "/tmp/repository",
     issue.sha,
   );
-  expect(await sandbox.execute("fix issue", issue.sha)).toEqual({
+  expect(await sandbox.execute("fix issue")).toEqual({
     summary: "done",
     patch: "",
     usage: null,
@@ -74,14 +76,6 @@ it("uses the injected provider to destroy an environment after a transport failu
   const { environment, create } = setup();
   vi.mocked(runLive).mockRejectedValueOnce(new Error("transport"));
   const sandbox = await create("task-id");
-  await expect(sandbox.execute("fix issue", issue.sha)).rejects.toThrow("EXECUTION_TIMEOUT");
+  await expect(sandbox.execute("fix issue")).rejects.toThrow("EXECUTION_FAILED");
   expect(environment.dispose).toHaveBeenCalledOnce();
-});
-
-it("rejects private repository setup without a backend GitHub token", async () => {
-  const { environment, create } = setup();
-  const sandbox = await create("task-id");
-  await expect(sandbox.clone({ ...issue, private: true })).rejects.toThrow("SETUP_FAILED");
-  expect(environment.clone).not.toHaveBeenCalled();
-  expect(environment.uploadFile).not.toHaveBeenCalled();
 });

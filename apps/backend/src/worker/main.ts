@@ -12,7 +12,6 @@ import { createSandboxProvider } from "@/sandbox/provider";
 import { createRepositorySandboxProvider } from "@/sandbox/repository";
 import { createExecutionHandler } from "@/tasks/execute";
 import { TaskRepository } from "@/tasks/repository";
-import { createRevisionPublisher } from "@/tasks/revision";
 
 const config = readWorkerConfig();
 const engineServer = listenForEngines(config.ENGINE_PORT);
@@ -27,7 +26,6 @@ for (const connection of [producer, consumer])
 const queue = new Queue(QUEUE_NAME, { connection: producer });
 queue.on("error", () => logger.error("queue failed"));
 const execute = createExecutionHandler({
-  revisions: createRevisionPublisher(config.GITHUB_TOKEN),
   tasks,
   logger,
   readIssue: createIssueReader(config.GITHUB_TOKEN),

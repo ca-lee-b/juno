@@ -9,10 +9,7 @@ import { ExecutionError } from "@/execution/contracts";
 import type { Sandbox } from "@/sandbox/contracts";
 import type { TaskRepository } from "@/tasks/repository";
 
-export type SessionTasks = Pick<
-  TaskRepository,
-  "messages" | "reply" | "liveLost" | "closeMessages"
->;
+export type SessionTasks = Pick<TaskRepository, "inbox" | "reply" | "liveLost" | "waiting">;
 
 const tokens = z.number().int().nonnegative();
 const usageSchema = z
@@ -56,9 +53,11 @@ type Event = {
 };
 
 export async function runLive(
-  sandbox: Pick<Sandbox, "executeCommand" | "uploadFile">,
-  config: Pick<
+  sandbox: Pick<Sandbox, "executeCommand" | "uploadFile" | "renew">,
+  config: { SANDBOX_PROVIDER?: WorkerConfig["SANDBOX_PROVIDER"] } & Pick<
     WorkerConfig,
+    | "GITHUB_TOKEN"
+    | "DAYTONA_GITHUB_SECRET"
     | "ENGINE_ENDPOINT"
     | "OPENAI_API_KEY"
     | "OPENAI_CODEX_MODEL"
@@ -67,7 +66,6 @@ export async function runLive(
   >,
   tasks: SessionTasks,
   id: string,
-  lastUser: string,
   prompt: string,
 ) {
   const dir = "/tmp/agent-output";
@@ -75,13 +73,16 @@ export async function runLive(
     await readFile(new URL("../../bin/towline", import.meta.url)),
     `${dir}/towline`,
   );
-  const timeout = Math.ceil(config.AGENT_TIMEOUT_MS / 1000);
+  let lastUser = "0";
+  let deadline = Date.now() + config.AGENT_TIMEOUT_MS;
   const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
   const settings = [
     `model = ${JSON.stringify(config.OPENAI_CODEX_MODEL)}`,
     `model_reasoning_effort = ${JSON.stringify(config.OPENAI_CODEX_MODEL_EFFORT)}`,
     'approval_policy = "never"',
     'sandbox_mode = "danger-full-access"',
+    "[shell_environment_policy]",
+    "ignore_default_excludes = true",
     "[features]",
     "default_mode_request_user_input = true",
   ].join("\n");
@@ -97,10 +98,13 @@ export async function runLive(
     | undefined;
   let ack: { id: string; resolve: (error?: string) => void } | undefined;
   let stored = Promise.resolve();
-  const log = (body: string) => {
-    stored = stored.then(() => tasks.reply(id, body));
-    void stored.catch(() => socket?.terminate());
+  const save = (operation: () => Promise<void>) => {
+    stored = stored.then(operation);
+    void stored.catch(() => {
+      failed = true;
+    });
   };
+  const log = (body: string) => save(() => tasks.reply(id, body));
   const show = (q: Question) =>
     log([q.question, ...(q.options ?? []).map((o) => `${o.label} — ${o.description}`)].join("\n"));
   let serial = 0;
@@ -111,7 +115,14 @@ export async function runLive(
         return;
       }
       const id = String(++serial);
-      ack = { id, resolve };
+      const timer = setTimeout(() => socket?.terminate(), 15000);
+      ack = {
+        id,
+        resolve: (error) => {
+          clearTimeout(timer);
+          resolve(error);
+        },
+      };
       socket.send(JSON.stringify({ ...data, id }));
     });
   let lost = false;
@@ -128,8 +139,7 @@ export async function runLive(
     ack = undefined;
     if (stopping || lost) return;
     lost = true;
-    stored = stored.then(() => tasks.liveLost(id));
-    void stored.catch(() => {});
+    save(() => tasks.liveLost(id));
   };
   waiting.set(key, (ws) => {
     if (socket) {
@@ -151,6 +161,10 @@ export async function runLive(
         if (frame.id === "stream") {
           ready = !frame.error;
           failed ||= !ready;
+          if (ready && lost) {
+            lost = false;
+            save(() => tasks.liveLost(id, false));
+          }
           return;
         }
         if (ack && frame.id === ack.id) {
@@ -172,10 +186,16 @@ export async function runLive(
         }
         if (e.method === "turn/started") {
           turn = e.params.turn?.id;
+          deadline = Date.now() + config.AGENT_TIMEOUT_MS;
+          save(() => tasks.waiting(id, false));
         }
         if (e.method === "turn/completed") {
           turn = null;
-          failed ||= e.params.turn?.status !== "completed";
+          deadline = Infinity;
+          question = undefined;
+          if (e.params.turn?.status !== "completed")
+            log("This turn ended before completion. Send a message to continue.");
+          save(() => tasks.waiting(id, true));
         }
         if (e.method === "item/completed" && e.params.item?.type === "agentMessage") {
           summary = e.params.item.text;
@@ -187,6 +207,7 @@ export async function runLive(
           e.params.questions?.[0]
         ) {
           question = { requestId: e.id, remaining: e.params.questions, answers: {} };
+          deadline = Infinity;
           show(e.params.questions[0]);
         }
       } catch {
@@ -194,73 +215,90 @@ export async function runLive(
       }
     });
   });
-  const command = sandbox.executeCommand(
-    `set -eu; chmod 700 ${dir}/towline; mkdir -p "$HOME/.codex"; cp ${dir}/codex.toml "$HOME/.codex/config.toml"; printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1; unset CODEX_API_KEY; exec timeout --kill-after=10s ${timeout}s ${dir}/towline -dir /tmp/repository -codex ${codex}`,
-    "/tmp/repository",
-    {
-      TOWLINE_ENDPOINT: config.ENGINE_ENDPOINT,
-      TOWLINE_TOKEN: token,
-      CODEX_API_KEY: config.OPENAI_API_KEY,
-    },
-    timeout + 30,
-  );
-  let finished = false;
-  const completion = command.finally(() => {
-    finished = true;
-    ack?.resolve("finished");
-  });
-  void completion.catch(() => {});
   try {
-    while (!finished && !failed && !stopping) {
+    const launched = await sandbox.executeCommand(
+      `set -eu
+      export PATH="/tmp/codex-runtime/node_modules/.bin:$PATH"
+      chmod 700 ${dir}/towline
+      mkdir -p "$HOME/.codex"
+      cp ${dir}/codex.toml "$HOME/.codex/config.toml"
+      printf '%s' "$CODEX_API_KEY" | ${codex} login --with-api-key >/dev/null 2>&1
+      unset CODEX_API_KEY
+      gh auth setup-git --hostname github.com
+      git config user.name Juno
+      git config user.email juno@users.noreply.github.com
+      nohup ${dir}/towline -dir /tmp/repository -codex ${codex} </dev/null >/dev/null 2>&1 &
+      echo $! > ${dir}/towline.pid`,
+      "/tmp/repository",
+      {
+        TOWLINE_ENDPOINT: config.ENGINE_ENDPOINT,
+        TOWLINE_TOKEN: token,
+        CODEX_API_KEY: config.OPENAI_API_KEY,
+        ...(config.SANDBOX_PROVIDER === "daytona" && config.DAYTONA_GITHUB_SECRET
+          ? {}
+          : { GH_TOKEN: config.GITHUB_TOKEN }),
+      },
+      60,
+    );
+    if (launched.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", launched.exitCode);
+    let nextRenewal = Date.now() + 60000;
+    while (!failed) {
+      const next = await tasks.inbox(id, lastUser);
+      if (next.settling) break;
+      if (Date.now() >= nextRenewal) {
+        const alive = await sandbox.executeCommand(
+          `kill -0 "$(cat ${dir}/towline.pid)"`,
+          "/tmp",
+          undefined,
+          10,
+        );
+        if (alive.exitCode !== 0) throw new ExecutionError("EXECUTION_FAILED");
+        await sandbox.renew();
+        nextRenewal = Date.now() + 60000;
+      }
+      if (Date.now() > deadline) {
+        if (!ready || !turn) throw new ExecutionError("EXECUTION_TIMEOUT");
+        const interrupted = await request({ op: "interrupt", turnId: turn });
+        if (interrupted && interrupted !== "turn is not active")
+          throw new ExecutionError("EXECUTION_TIMEOUT");
+        deadline = Infinity;
+      }
       if (ready && !started) {
         started = true;
         const error = await request({ op: "send", text: prompt });
         if (error && error !== "disconnected") throw new ExecutionError("EXECUTION_FAILED");
-      }
-      if (ready && turn !== undefined) {
-        const messages = lost ? [] : (await tasks.messages(id)).filter((m) => m.role === "user");
-        const next = messages.find((m) => BigInt(m.id) > BigInt(lastUser));
-        if (lost && question) {
-          await request({ op: "respond", requestId: question.requestId, result: { answers: {} } });
-          question = undefined;
-        } else if (next) {
-          let error: string | undefined;
-          if (question) {
-            const q = question.remaining.shift();
-            if (q) question.answers[q.id] = { answers: [next.body] };
-            if (question.remaining[0]) show(question.remaining[0]);
-            else {
-              error = await request({
-                op: "respond",
-                requestId: question.requestId,
-                result: { answers: question.answers },
-              });
-              question = undefined;
-            }
-          } else {
-            error = await request(
-              turn
-                ? { op: "steer", turnId: turn, text: next.body }
-                : { op: "send", text: next.body },
-            );
+      } else if (ready && turn !== undefined && next.id && next.body) {
+        let error: string | undefined;
+        if (question) {
+          const q = question.remaining.shift();
+          if (q) question.answers[q.id] = { answers: [next.body] };
+          if (question.remaining[0]) show(question.remaining[0]);
+          else {
+            error = await request({
+              op: "respond",
+              requestId: question.requestId,
+              result: { answers: question.answers },
+            });
+            question = undefined;
+            deadline = Date.now() + config.AGENT_TIMEOUT_MS;
           }
-          if (!error) lastUser = next.id;
-          else if (!["turn is not active", "busy", "disconnected"].includes(error))
-            throw new ExecutionError("EXECUTION_FAILED");
-        } else if (turn === null && (lost || (await tasks.closeMessages(id, messages.length)))) {
-          stopping = !(await request({ op: "prepare_shutdown" }));
+        } else {
+          error = await request(
+            turn ? { op: "steer", turnId: turn, text: next.body } : { op: "send", text: next.body },
+          );
         }
+        if (!error) lastUser = next.id;
+        else if (error === "disconnected") {
+          lastUser = next.id;
+          log(
+            "The connection dropped during message delivery. Check the reply before sending it again.",
+          );
+        } else if (!["turn is not active", "busy"].includes(error))
+          throw new ExecutionError("EXECUTION_FAILED");
       }
-      if (!stopping) await Promise.race([completion, delay(350)]);
+      await delay(350);
     }
-    if (finished) {
-      const r = await completion;
-      throw new ExecutionError(
-        r.exitCode === 124 || r.exitCode === 137 ? "EXECUTION_TIMEOUT" : "EXECUTION_FAILED",
-        r.exitCode,
-      );
-    }
-    if (failed || !summary.trim()) throw new ExecutionError("OUTPUT_FAILED");
+    if (failed) throw new ExecutionError("OUTPUT_FAILED");
     await stored;
     return { summary, usage };
   } finally {

@@ -1,7 +1,7 @@
 import type { TaskInput } from "@/tasks/input";
 
 export type IssueContext = TaskInput & {
-  reviewComments?: { path: string; line: number | null; body: string }[];
+  sessionBranch?: string;
   history?: { role: string; body: string }[];
   instruction?: string;
   title: string;
@@ -15,8 +15,7 @@ export type ExecutionFailureCode =
   | "SETUP_FAILED"
   | "EXECUTION_FAILED"
   | "EXECUTION_TIMEOUT"
-  | "OUTPUT_FAILED"
-  | "PATCH_TOO_LARGE";
+  | "OUTPUT_FAILED";
 export class ExecutionError extends Error {
   constructor(
     readonly code: ExecutionFailureCode,
@@ -25,10 +24,9 @@ export class ExecutionError extends Error {
     super(code);
   }
 }
-export const MAX_PATCH_BYTES = 5 * 1024 * 1024;
 export type TokenUsage = { inputTokens: number; outputTokens: number; cachedInputTokens?: number };
 export type ExecutionResult = {
-  result: { summary: string; patch: string; prDescription: string; prTitle: string };
+  result: { summary: string; patch: string; prDescription?: string; prTitle?: string };
   model: string;
   promptVersion: string;
   usage: TokenUsage | null;
@@ -37,7 +35,7 @@ export type SandboxOutput = { summary: string; patch: string; usage: TokenUsage 
 export interface RepositorySandbox {
   id: string;
   clone(issue: IssueContext, patch?: string): Promise<void>;
-  execute(prompt: string, sha: string): Promise<SandboxOutput>;
+  execute(prompt: string): Promise<SandboxOutput>;
   dispose(): Promise<void>;
 }
 export type Execute = (issue: IssueContext, sandbox: RepositorySandbox) => Promise<ExecutionResult>;

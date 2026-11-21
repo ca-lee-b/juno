@@ -2,9 +2,17 @@
 
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { Button } from "@/components/ui/button";
+import { ArrowUp, LoaderCircle } from "lucide-react";
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupButton,
+  InputGroupTextarea,
+} from "@/components/shadcn/input-group";
 import { request } from "@/lib/request";
-import { type Task } from "@/lib/tasks";
+import { MarkdownSummary } from "@/components/markdown-summary";
+import { Button } from "@/components/shadcn/button";
+import { isTaskActive, type Task } from "@/lib/tasks";
 
 export type Session = {
   turns: Pick<Task, "id" | "instruction" | "status">[];
@@ -14,13 +22,13 @@ export type Session = {
 export function TaskSession({
   id,
   session,
+  task,
   refresh,
-  select,
 }: {
   id: string;
   session: Session;
+  task: Task;
   refresh: () => void;
-  select: (id: string) => void;
 }) {
   const [body, setBody] = useState("");
   const [key, setKey] = useState<string>();
@@ -40,50 +48,95 @@ export function TaskSession({
       refresh();
     },
   });
+  const settle = useMutation({
+    mutationFn: () => request(`/api/tasks/${id}/settle`, { method: "POST" }),
+    onSuccess: refresh,
+  });
+  const settling = task.settleRequested || settle.isSuccess;
+  const open = isTaskActive(task.status) && !settling;
   return (
     <section className="mb-6 space-y-3" aria-label="Session">
-      {session.turns.length > 1 && (
-        <details>
-          <summary>Run history</summary>
-          {session.turns.map((t, i) => (
-            <Button key={t.id} onClick={() => select(t.id)}>
-              Run {i + 1} · {t.status}
-            </Button>
-          ))}
-        </details>
-      )}
       {session.messages.map((m) => (
-        <p className="whitespace-pre-wrap" key={m.id}>
-          <strong>{m.role === "user" ? "You" : "Codex"}</strong> {m.body}
-        </p>
+        <article key={m.id} className="min-w-0">
+          <strong className="text-sm">{m.role === "user" ? "You" : "Codex"}</strong>
+          {m.role === "assistant" ? (
+            <MarkdownSummary>{m.body}</MarkdownSummary>
+          ) : (
+            <p className="whitespace-pre-wrap break-words">{m.body}</p>
+          )}
+        </article>
       ))}
-
-      <form
-        className="space-y-2"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (body.trim() && !send.isPending) send.mutate();
-        }}
-      >
-        <label className="block" htmlFor="session-message">
-          Message Codex
-        </label>
-        <textarea
-          id="session-message"
-          className="w-full rounded-md border border-border p-2"
-          maxLength={8000}
-          disabled={send.isPending}
-          value={body}
-          onChange={(e) => {
-            setBody(e.target.value);
-            setKey(undefined);
+      {task.liveLost && task.status === "running" && <p role="status">Reconnecting to Codex…</p>}
+      {task.status === "queued" && <p role="status">Waiting for a worker…</p>}
+      {open && task.status === "running" && !task.waitingForMessage && !task.liveLost && (
+        <p role="status">Codex is working…</p>
+      )}
+      {task.status === "failed" && <p role="alert">Codex stopped ({task.errorCode}). </p>}
+      {settling && (
+        <p role="status">{isTaskActive(task.status) ? "Settling session…" : "Session settled"}</p>
+      )}
+      {open && (
+        <form
+          className="space-y-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (body.trim() && !send.isPending) send.mutate();
           }}
-        />
-        <Button type="submit" disabled={!body.trim() || send.isPending}>
-          Send
+        >
+          <InputGroup className="rounded-2xl bg-background shadow-sm">
+            <InputGroupTextarea
+              aria-label="Message Codex"
+              placeholder="Message Codex…"
+              className="min-h-16 max-h-48 resize-none px-4 pt-3 text-sm"
+              rows={2}
+              maxLength={8000}
+              disabled={send.isPending}
+              value={body}
+              onChange={(event) => {
+                setBody(event.target.value);
+                setKey(undefined);
+                send.reset();
+              }}
+              onKeyDown={(event) => {
+                if (
+                  event.key === "Enter" &&
+                  (event.metaKey || event.ctrlKey) &&
+                  !event.nativeEvent.isComposing
+                ) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <InputGroupAddon align="block-end" className="justify-end px-2.5 pb-2.5">
+              <InputGroupButton
+                type="submit"
+                variant="default"
+                size="icon-sm"
+                className="size-8! rounded-full!"
+                aria-label={send.isPending ? "Sending message" : "Send message"}
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                disabled={!body.trim() || send.isPending}
+              >
+                {send.isPending ? <LoaderCircle className="animate-spin" /> : <ArrowUp />}
+              </InputGroupButton>
+            </InputGroupAddon>
+          </InputGroup>
+          {send.error && <p role="alert">{send.error.message}</p>}
+        </form>
+      )}
+      {open && (
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={settle.isPending}
+          onClick={() => settle.mutate()}
+        >
+          Settle
         </Button>
-        {send.error && <p role="alert">{send.error.message}</p>}
-      </form>
+      )}
+      {settle.error && <p role="alert">{settle.error.message}</p>}
+      {task.publication?.prUrl && <a href={task.publication.prUrl}>View pull request</a>}
     </section>
   );
 }

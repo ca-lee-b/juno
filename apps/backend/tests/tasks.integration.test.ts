@@ -42,30 +42,20 @@ describe.skipIf(!url)("Postgres task persistence", () => {
     await tasks.published(first.task.id);
     expect(await tasks.pending()).not.toContainEqual({ taskId: first.task.id });
   });
-  it("keeps follow-ups on one PR and accepts messages until Codex has consumed them", async () => {
+  it("routes idle and active messages to the original session and closes it idempotently", async () => {
     const { task } = await tasks.create(input, randomUUID());
     await tasks.start(task.id);
-    expect(await tasks.closeMessages(task.id, 0)).toBe(true);
+    await tasks.waiting(task.id, true);
     const key = randomUUID();
-    const turn = await tasks.send(task.id, "Revise it", key);
-    if (!turn) throw new Error("Expected a new run");
-    const id = turn.id;
-    expect(await tasks.send(task.id, "Revise it", key)).toEqual(turn);
-    expect(await tasks.pending()).not.toContainEqual({ taskId: id });
-    await tasks.fail(task.id, true);
-    expect(await tasks.pending()).toContainEqual({ taskId: id });
-    await tasks.start(id);
-    const steering = randomUUID();
-    expect(await tasks.send(task.id, "Use blue", steering)).toEqual({ id });
-    expect(await tasks.send(task.id, "Use blue", steering)).toEqual({ id });
-    expect(await tasks.closeMessages(id, 0)).toBe(false);
-    expect(await tasks.messages(id)).toMatchObject([{ body: "Use blue" }]);
-    expect(await tasks.closeMessages(id, 1)).toBe(true);
-    expect((await tasks.conversation(task.id)).map((m) => m.body)).toEqual([
-      "Revise it",
-      "Use blue",
-    ]);
-    expect((await tasks.turns(task.id)).map((t) => t.id)).toEqual([task.id, id]);
+    expect(await tasks.send(task.id, "Revise it", key)).toEqual({ id: task.id });
+    expect(await tasks.inbox(task.id, "0")).toMatchObject({ body: "Revise it", settling: false });
+    await tasks.settle(task.id);
+    await tasks.settle(task.id);
+    expect(await tasks.inbox(task.id, "0")).toMatchObject({ settling: true });
+    expect(await tasks.send(task.id, "Revise it", key)).toEqual({ id: task.id });
+    expect(await tasks.send(task.id, "More", randomUUID())).toBeUndefined();
+    expect(await tasks.turns(task.id)).toHaveLength(1);
+    expect(await tasks.conversation(task.id)).toHaveLength(1);
   });
   it("preserves completed tasks on redelivery", async () => {
     const { task } = await tasks.create(input, randomUUID());

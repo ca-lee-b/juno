@@ -8,10 +8,7 @@ import {
 import type { TaskInput } from "@/tasks/input";
 import type { TaskRepository } from "@/tasks/repository";
 
-import type { createRevisionPublisher } from "@/tasks/revision";
-
 type Dependencies = {
-  revisions?: ReturnType<typeof createRevisionPublisher>;
   tasks: Pick<TaskRepository, "start" | "setSource" | "setSandbox" | "complete" | "fail"> &
     Partial<Pick<TaskRepository, "conversation" | "latestDraft">>;
   readIssue: (input: TaskInput, sourceSha: string | null) => Promise<IssueContext>;
@@ -21,7 +18,6 @@ type Dependencies = {
 };
 
 export function createExecutionHandler({
-  revisions,
   tasks,
   readIssue,
   createSandbox,
@@ -31,27 +27,25 @@ export function createExecutionHandler({
   return async (taskId: string, lastAttempt: boolean) => {
     const task = await tasks.start(taskId);
     if (!task) return; // Terminal tasks are safe to redeliver.
+    // A redelivered live job lost its owning worker. Re-running its initial prompt
+    // in a new sandbox could repeat GitHub writes from the original thread.
+    if (task.sandboxId) {
+      await tasks.fail(taskId, true, "SESSION_LOST");
+      return;
+    }
     let operation = "load context";
     let sandbox: RepositorySandbox | undefined;
     try {
-      if (task.sessionId && task.result && task.sourceSha && revisions) {
-        operation = "publish revision";
-        await revisions.push(task, task.sourceSha, task.result.patch);
-        await tasks.complete(taskId, task);
-        return;
-      }
-      const head =
-        task.sessionId && task.publication?.prNumber ? await revisions?.head(task) : undefined;
-      const draft = task.sessionId && !head ? await tasks.latestDraft?.(task.sessionId) : undefined;
-      const issue = await readIssue(
-        task.input,
-        task.sourceSha ?? head?.sha ?? draft?.sourceSha ?? null,
-      );
+      const issue = await readIssue(task.input, task.sourceSha);
+      issue.sessionBranch = `byo-pr-agent/${task.sessionId ?? task.id}`;
+      const draft =
+        task.sessionId && !task.publication?.prNumber
+          ? await tasks.latestDraft?.(task.sessionId)
+          : undefined;
       if (task.sessionId) {
-        if (head) issue.reviewComments = (await revisions?.comments(task)) ?? [];
-        issue.branch = head?.branch ?? draft?.sourceBranch ?? issue.branch;
         issue.instruction = task.instruction ?? "";
         issue.history = (await tasks.conversation?.(task.sessionId, taskId)) ?? [];
+        if (draft?.sourceSha) issue.sha = draft.sourceSha;
       }
       await tasks.setSource(taskId, issue.sha, issue.branch, issue.title);
       operation = "create sandbox";
@@ -61,11 +55,6 @@ export function createExecutionHandler({
       await sandbox.clone(issue, draft?.result?.patch);
       operation = "run agent";
       const result = await execute(issue, sandbox);
-      if (head && revisions) {
-        await tasks.complete(taskId, result, true);
-        operation = "publish revision";
-        await revisions.push(task, issue.sha, result.result.patch);
-      }
       await tasks.complete(taskId, result);
       logger.info({ taskId, model: result.model, usage: result.usage }, "execution completed");
     } catch (error) {
@@ -80,7 +69,8 @@ export function createExecutionHandler({
         { taskId, operation, stage: failure.code, exitCode: failure.exitCode },
         "execution failed",
       );
-      await tasks.fail(taskId, lastAttempt, failure.code);
+      const liveFailure = operation === "run agent" && failure.code !== "SETUP_FAILED";
+      await tasks.fail(taskId, lastAttempt || liveFailure, failure.code);
       // Do not persist provider errors: they can contain credentials or repository content.
       const exit = failure.exitCode === undefined ? "" : `, exit ${failure.exitCode}`;
       throw new Error(`Task execution failed during ${operation} (${failure.code}${exit})`);

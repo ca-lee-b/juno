@@ -46,6 +46,7 @@ export function createE2BProvider(config: Pick<WorkerConfig, "E2B_API_KEY">): Sa
     let disposed = false;
     return {
       id: sandbox.sandboxId,
+      renew: () => sandbox.setTimeout(1800000),
       executeCommand,
       uploadFile: (data, path) => sandbox.files.write(path, data),
       downloadFile: async (path) =>

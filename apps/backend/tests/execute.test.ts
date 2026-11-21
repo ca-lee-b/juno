@@ -100,40 +100,6 @@ describe("execution lifecycle", () => {
     );
     expect(tasks.complete).toHaveBeenCalledExactlyOnceWith(task.id, result);
   });
-  it("uses the current PR head and retries publication without running Codex again", async () => {
-    const { task, tasks, readIssue, createSandbox, execute, result } = setup();
-    const sha = "b".repeat(40);
-    Object.assign(task, {
-      sourceSha: null,
-      sessionId: "original",
-      publication: { prNumber: 1 },
-      instruction: "Update the heading",
-    });
-    const revisions = {
-      head: vi.fn().mockResolvedValue({ sha, branch: "feature" }),
-      comments: vi.fn().mockResolvedValue([]),
-      push: vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValue(undefined),
-    };
-    const issue = await readIssue(task.input, null);
-    readIssue.mockClear().mockResolvedValue({ ...issue, sha });
-    const handle = createExecutionHandler({
-      tasks,
-      readIssue,
-      createSandbox,
-      execute,
-      revisions,
-      logger: createLogger("silent"),
-    });
-    await expect(handle(task.id, false)).rejects.toThrow();
-    expect(readIssue).toHaveBeenCalledWith(task.input, sha);
-    expect(tasks.complete).toHaveBeenCalledWith(task.id, result, true);
-    expect(revisions.push).toHaveBeenCalledWith(task, sha, result.result.patch);
-    Object.assign(task, result, { sourceSha: sha, attempts: 2 });
-    await handle(task.id, true);
-    expect(revisions.push).toHaveBeenCalledTimes(2);
-    expect(execute).toHaveBeenCalledTimes(1);
-    expect(tasks.complete).toHaveBeenLastCalledWith(task.id, task);
-  });
   it("skips redelivery of terminal tasks", async () => {
     const { handle, tasks, createSandbox } = setup();
     tasks.start.mockResolvedValue(undefined);
