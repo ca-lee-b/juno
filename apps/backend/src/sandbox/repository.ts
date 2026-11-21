@@ -23,6 +23,7 @@ export function createRepositorySandboxProvider(
   tasks: SessionTasks,
 ) {
   return async (taskId: string): Promise<RepositorySandbox> => {
+    const leaseStart = Date.now();
     const sandbox = await provider(taskId);
     return {
       id: sandbox.id,
@@ -66,7 +67,11 @@ export function createRepositorySandboxProvider(
         }
       },
       execute: (prompt) =>
-        runCodex(sandbox, config, prompt, () => sandbox.dispose(), { tasks, id: taskId }),
+        runCodex(sandbox, config, prompt, () => sandbox.dispose(), {
+          tasks,
+          id: taskId,
+          leaseStart,
+        }),
       dispose: () => sandbox.dispose(),
     };
   };

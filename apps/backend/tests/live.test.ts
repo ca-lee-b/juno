@@ -59,6 +59,7 @@ it("sends a follow-up on the existing connection after a completed turn and rele
       tasks,
       "issue",
       "Initial request",
+      Date.now(),
     );
     expect(operations).toEqual(["replay", "send", "send"]);
     expect(output.summary).toBe("Change the heading");
@@ -120,6 +121,7 @@ it("allows an explicit follow-up after losing the initial send acknowledgment", 
       tasks,
       "issue",
       "Issue details",
+      Date.now(),
     );
     expect(sends).toEqual(["Issue details", "Issue details\nTry again"]);
   } finally {

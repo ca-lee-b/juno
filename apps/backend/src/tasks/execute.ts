@@ -62,6 +62,7 @@ export function createExecutionHandler({
       const result = await execute(issue, sandbox);
       operation = "release sandbox";
       await release();
+      operation = "save result";
       await tasks.complete(taskId, result);
       logger.info({ taskId, model: result.model, usage: result.usage }, "execution completed");
     } catch (error) {
@@ -77,7 +78,18 @@ export function createExecutionHandler({
         "execution failed",
       );
       const liveFailure = operation === "run agent" && failure.code !== "SETUP_FAILED";
-      const cleanupFailed = operation === "release sandbox";
+      let cleanupFailed = operation === "release sandbox";
+      if (!cleanupFailed) {
+        try {
+          await release();
+        } catch {
+          cleanupFailed = true;
+          logger.error(
+            { taskId, sandboxId: sandbox?.id },
+            "sandbox cleanup failed; TTL is the fallback",
+          );
+        }
+      }
       await tasks.fail(
         taskId,
         lastAttempt || liveFailure || cleanupFailed,
@@ -86,17 +98,6 @@ export function createExecutionHandler({
       // Do not persist provider errors: they can contain credentials or repository content.
       const exit = failure.exitCode === undefined ? "" : `, exit ${failure.exitCode}`;
       throw new Error(`Task execution failed during ${operation} (${failure.code}${exit})`);
-    } finally {
-      if (sandbox && operation !== "release sandbox") {
-        try {
-          await release();
-        } catch {
-          logger.error(
-            { taskId, sandboxId: sandbox.id },
-            "sandbox cleanup failed; TTL is the fallback",
-          );
-        }
-      }
     }
   };
 }

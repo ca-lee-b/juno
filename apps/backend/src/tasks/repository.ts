@@ -231,7 +231,7 @@ export class TaskRepository {
 
   async fail(id: string, terminal: boolean, code = "EXECUTION_FAILED") {
     await this.db.query(
-      `UPDATE tasks SET status = CASE WHEN settle_requested AND $3 <> 'CLEANUP_FAILED' THEN 'completed' ELSE $2 END, error_code = CASE WHEN settle_requested AND $3 <> 'CLEANUP_FAILED' THEN NULL ELSE $3 END, updated_at = now()
+      `UPDATE tasks SET status = CASE WHEN settle_requested AND sandbox_id IS NULL AND $3 <> 'CLEANUP_FAILED' THEN 'completed' ELSE $2 END, error_code = CASE WHEN settle_requested AND sandbox_id IS NULL AND $3 <> 'CLEANUP_FAILED' THEN NULL ELSE $3 END, updated_at = now()
       WHERE id = $1 AND status IN ('queued', 'running')`,
       [id, terminal ? "failed" : "queued", code],
     );

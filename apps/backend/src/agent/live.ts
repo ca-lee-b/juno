@@ -68,6 +68,7 @@ export async function runLive(
   tasks: SessionTasks,
   id: string,
   prompt: string,
+  leaseStart: number,
 ) {
   const dir = "/tmp/agent-output";
   await sandbox.uploadFile(
@@ -75,7 +76,7 @@ export async function runLive(
     `${dir}/towline`,
   );
   let lastUser = "0";
-  let interrupting = false;
+  let interruptDeadline = Infinity;
   let deadline = Date.now() + config.AGENT_TIMEOUT_MS;
   const codex = "/tmp/codex-runtime/node_modules/.bin/codex";
   const settings = [
@@ -188,7 +189,7 @@ export async function runLive(
           else failed = true;
         }
         if (e.method === "turn/started") {
-          interrupting = false;
+          interruptDeadline = Infinity;
           turn = e.params.turn?.id;
           deadline = Date.now() + config.AGENT_TIMEOUT_MS;
           save(() => tasks.waiting(id, false));
@@ -206,6 +207,7 @@ export async function runLive(
           if (answering) lastUser = answering.messageId;
           answering = undefined;
           turn = null;
+          interruptDeadline = Infinity;
           deadline = Infinity;
           question = undefined;
           if (e.params.turn?.status !== "completed")
@@ -256,7 +258,7 @@ export async function runLive(
       60,
     );
     if (launched.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", launched.exitCode);
-    let lastRenewed = Date.now();
+    let lastRenewed = leaseStart;
     let nextRenewal = lastRenewed + 60000;
     while (!failed) {
       const next = await tasks.inbox(id, lastUser);
@@ -281,10 +283,10 @@ export async function runLive(
           nextRenewal = Date.now() + 10000;
         }
       }
-      if (Date.now() > deadline) {
-        if (!ready || !turn || interrupting) throw new ExecutionError("EXECUTION_TIMEOUT");
-        interrupting = true;
-        deadline = Date.now() + 15000;
+      if (Date.now() >= interruptDeadline) throw new ExecutionError("EXECUTION_TIMEOUT");
+      if (Date.now() > deadline && interruptDeadline === Infinity) {
+        if (!ready || !turn) throw new ExecutionError("EXECUTION_TIMEOUT");
+        interruptDeadline = Date.now() + 15000;
         const interrupted = await request({ op: "interrupt", turnId: turn });
         if (interrupted && interrupted !== "turn is not active")
           throw new ExecutionError("EXECUTION_TIMEOUT");
@@ -298,7 +300,7 @@ export async function runLive(
           );
           if (turn === undefined) deadline = Infinity;
         } else if (error) throw new ExecutionError("EXECUTION_FAILED");
-      } else if (ready && next.id && next.body) {
+      } else if (ready && next.id && next.body && BigInt(next.id) > BigInt(lastUser)) {
         let error: string | undefined;
         if (question) {
           const q = question.remaining.shift();

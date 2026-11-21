@@ -20,6 +20,7 @@ export async function runCodex(
   prompt: string,
   dispose: () => Promise<void>,
   live: {
+    leaseStart: number;
     tasks: SessionTasks;
     id: string;
   },
@@ -54,7 +55,7 @@ export async function runCodex(
     if (installed.exitCode !== 0) throw new ExecutionError("SETUP_FAILED", installed.exitCode);
   }
   try {
-    const output = await runLive(sandbox, config, live.tasks, live.id, prompt);
+    const output = await runLive(sandbox, config, live.tasks, live.id, prompt, live.leaseStart);
     return { ...output, patch: "" };
   } catch (error) {
     if (!(error instanceof ExecutionError) || error.code === "EXECUTION_TIMEOUT") await dispose();
